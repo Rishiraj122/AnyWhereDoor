@@ -1,0 +1,335 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AnyWhereDoor</title>
+<style>
+  :root {
+    --bg: #0f1318; --card: #1a2028; --line: #2a323d; --text: #eceff3; --muted: #8b95a3;
+    --door: #ec5a8e; --door2: #b83a68; --ok: #3dd68c; --bad: #f2665c; --warn: #f2b544;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  .wrap { max-width: 860px; margin: 0 auto; padding: 24px 16px 60px; }
+  header { display: flex; align-items: center; gap: 12px; }
+  header svg { width: 44px; height: 44px; flex: none; }
+  h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
+  .sub { color: var(--muted); font-size: 13px; }
+  .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: 1px; }
+  .dot.off { background: var(--bad); }
+  .banner { display: none; margin-top: 16px; padding: 12px 14px; border-radius: 12px; background: #3a1f22; color: #ffc9c4; font-size: 14px; }
+  .banner.show { display: block; }
+
+  .grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 20px; }
+  @media (min-width: 760px) { .grid { grid-template-columns: 1fr 1fr; } }
+
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
+  .label { font-size: 12px; font-weight: 700; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; display: flex; justify-content: space-between; }
+  .label span { font-weight: 400; letter-spacing: 0; }
+
+  .drop {
+    display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
+    min-height: 190px; padding: 24px; cursor: pointer; border: 2px dashed var(--line);
+    transition: border-color .15s, background .15s;
+  }
+  .drop:hover, .drop.over { border-color: var(--door); background: #21171d; }
+  .drop b { font-size: 17px; }
+  .drop .sub { margin-top: 6px; }
+  .btn {
+    display: inline-block; border: 0; border-radius: 12px; padding: 10px 16px; font: inherit; font-weight: 600;
+    background: var(--door); color: #fff; cursor: pointer; text-decoration: none; white-space: nowrap;
+  }
+  .btn:hover { background: var(--door2); }
+  .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
+  .btn.ghost:hover { border-color: var(--muted); }
+  .btn.small { padding: 6px 12px; font-size: 13px; border-radius: 10px; }
+  .drop .btn { margin-top: 14px; }
+
+  .me { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .me input {
+    background: transparent; border: 1px solid var(--line); border-radius: 8px; color: var(--text);
+    font: inherit; padding: 4px 8px; width: 150px;
+  }
+
+  .row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); }
+  .row:first-child { border-top: 0; }
+  .row .main { flex: 1; min-width: 0; }
+  .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
+  .meta { font-size: 12px; color: var(--muted); }
+  .bar { height: 6px; background: var(--line); border-radius: 3px; margin: 7px 0 5px; overflow: hidden; }
+  .bar i { display: block; height: 100%; width: 0; background: var(--door); transition: width .2s; }
+  .bar.done i { background: var(--ok); }
+  .bar.fail i { background: var(--bad); }
+  .x { background: none; border: 0; color: var(--muted); font-size: 16px; cursor: pointer; padding: 6px 8px; border-radius: 8px; }
+  .x:hover { color: var(--text); background: var(--line); }
+  .empty { padding: 16px 14px; color: var(--muted); font-size: 14px; }
+  .tag { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: #2c2330; color: #f5a3c1; margin-left: 6px; vertical-align: 1px; }
+  .hidden { display: none; }
+  footer { margin-top: 28px; color: var(--muted); font-size: 12px; text-align: center; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <svg viewBox="26 24 56 64" aria-hidden="true">
+      <path fill="#B83A68" d="M36,26h36a4,4 0 0 1 4,4v52h-44v-52a4,4 0 0 1 4,-4z"/>
+      <path fill="#EC5A8E" d="M39,29h30a2,2 0 0 1 2,2v51h-34v-51a2,2 0 0 1 2,-2z"/>
+      <path fill="#F58BB0" d="M43,34h22v16h-22zM43,55h22v22h-22z"/>
+      <circle fill="#FFD24D" cx="63" cy="54" r="3"/>
+      <path fill="#ECEFF3" d="M28,82h52v3h-52z"/>
+    </svg>
+    <div>
+      <h1>AnyWhereDoor</h1>
+      <div class="sub" id="who"><span class="dot"></span>Connecting…</div>
+    </div>
+  </header>
+
+  <div class="banner" id="banner">
+    Lost contact with the phone. Check that this device is still on the phone's hotspot and that the door is open in the app. Retrying…
+  </div>
+
+  <div class="grid">
+    <section>
+      <p class="label">SEND TO THE PHONE</p>
+      <label class="card drop" id="drop">
+        <b>Drop files here</b>
+        <div class="sub">Any size, any number. They're saved on the phone, and every device on the hotspot can download them.</div>
+        <span class="btn">Choose files</span>
+        <input type="file" id="pick" multiple class="hidden">
+      </label>
+      <div class="me">Show me as <input id="me" maxlength="40"></div>
+
+      <div id="upBox" class="hidden">
+        <p class="label" style="margin-top:18px">UPLOADS <span id="upSummary"></span></p>
+        <div class="card" id="ups"></div>
+      </div>
+    </section>
+
+    <section>
+      <p class="label">ON THE PHONE <span id="free"></span></p>
+      <div class="card" id="moving" style="margin-bottom:12px; display:none"></div>
+      <div class="card" id="files"><div class="empty">Loading…</div></div>
+    </section>
+  </div>
+
+  <footer>Everything moves over the hotspot's Wi-Fi. Mobile data isn't used.</footer>
+</div>
+
+<script>
+(() => {
+  const $ = id => document.getElementById(id);
+  const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+  const size = b => {
+    if (b < 1024) return b + ' B';
+    const u = ['KB','MB','GB','TB']; let i = -1;
+    do { b /= 1024; i++; } while (b >= 1024 && i < u.length - 1);
+    return (b < 10 ? b.toFixed(1) : b.toFixed(0)) + ' ' + u[i];
+  };
+  const when = t => {
+    const d = new Date(t), now = new Date();
+    const hm = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    return d.toDateString() === now.toDateString() ? hm : d.toLocaleDateString([], {day: 'numeric', month: 'short'}) + ', ' + hm;
+  };
+
+  // ---- who am I
+  const guess = () => {
+    const ua = navigator.userAgent;
+    if (/Windows/.test(ua)) return 'Laptop';
+    if (/Macintosh/.test(ua)) return 'Mac';
+    if (/iPhone|iPad/.test(ua)) return 'iPhone';
+    if (/Android/.test(ua)) return 'Android phone';
+    return 'Computer';
+  };
+  let me;
+  try { me = localStorage.getItem('awd-me'); } catch (e) {}
+  $('me').value = me || guess();
+  $('me').addEventListener('change', () => { try { localStorage.setItem('awd-me', $('me').value.trim()); } catch (e) {} });
+
+  // ---- uploads (one at a time, so each gets the full link speed)
+  const queue = [];
+  let busy = false, nextId = 1;
+
+  function addFiles(list) {
+    for (const f of list) {
+      const u = { id: nextId++, file: f, done: 0, state: 'waiting', xhr: null, t0: 0 };
+      queue.push(u);
+    }
+    $('upBox').classList.remove('hidden');
+    drawUploads();
+    pump();
+  }
+
+  function pump() {
+    if (busy) return;
+    const u = queue.find(q => q.state === 'waiting');
+    if (!u) return;
+    busy = true;
+    u.state = 'sending';
+    u.t0 = performance.now();
+    const xhr = new XMLHttpRequest();
+    u.xhr = xhr;
+    const from = $('me').value.trim() || guess();
+    xhr.open('PUT', '/api/upload?name=' + encodeURIComponent(u.file.name) + '&from=' + encodeURIComponent(from));
+    xhr.upload.onprogress = e => { u.done = e.loaded; drawUpload(u); };
+    xhr.onload = () => {
+      if (xhr.status === 200) {
+        u.state = 'done'; u.done = u.file.size;
+        try { u.saved = JSON.parse(xhr.responseText).name; } catch (e) {}
+      } else {
+        u.state = 'failed';
+        try { u.error = JSON.parse(xhr.responseText).error; } catch (e) { u.error = 'Phone said ' + xhr.status; }
+      }
+      finish(u);
+    };
+    xhr.onerror = () => { u.state = 'failed'; u.error = 'Connection to the phone dropped'; finish(u); };
+    xhr.onabort = () => { u.state = 'cancelled'; finish(u); };
+    xhr.send(u.file);
+    drawUploads();
+  }
+
+  function finish(u) {
+    u.t1 = performance.now();
+    busy = false;
+    drawUploads();
+    refresh();
+    pump();
+  }
+
+  function drawUploads() {
+    const box = $('ups');
+    box.innerHTML = '';
+    for (const u of queue) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      row.id = 'up' + u.id;
+      row.innerHTML = '<div class="main"><div class="name"></div><div class="bar"><i></i></div><div class="meta"></div></div>'
+        + '<button class="x" title="Cancel">✕</button>';
+      row.querySelector('.name').textContent = u.file.name;
+      row.querySelector('.x').onclick = () => {
+        if (u.state === 'sending') u.xhr.abort();
+        else if (u.state === 'waiting') { u.state = 'cancelled'; drawUploads(); }
+        else { queue.splice(queue.indexOf(u), 1); drawUploads(); if (!queue.length) $('upBox').classList.add('hidden'); }
+      };
+      box.appendChild(row);
+      drawUpload(u);
+    }
+    const left = queue.filter(q => q.state === 'waiting' || q.state === 'sending');
+    const total = left.reduce((s, q) => s + q.file.size - q.done, 0);
+    $('upSummary').textContent = left.length ? left.length + ' left · ' + size(total) : 'all done';
+  }
+
+  function drawUpload(u) {
+    const row = $('up' + u.id);
+    if (!row) return;
+    const pct = u.file.size ? u.done / u.file.size * 100 : (u.state === 'done' ? 100 : 0);
+    const bar = row.querySelector('.bar');
+    bar.className = 'bar' + (u.state === 'done' ? ' done' : u.state === 'failed' ? ' fail' : '');
+    bar.firstChild.style.width = pct.toFixed(1) + '%';
+    const secs = ((u.t1 || performance.now()) - u.t0) / 1000;
+    const speed = secs > 0.3 ? u.done / secs : 0;
+    let meta;
+    if (u.state === 'waiting') meta = size(u.file.size) + ' · waiting';
+    else if (u.state === 'sending') {
+      const eta = speed > 0 ? (u.file.size - u.done) / speed : 0;
+      meta = size(u.done) + ' of ' + size(u.file.size) + ' · ' + size(speed) + '/s'
+        + (eta > 1 ? ' · ' + (eta > 90 ? Math.round(eta / 60) + ' min' : Math.round(eta) + ' s') + ' left' : '');
+    }
+    else if (u.state === 'done') meta = size(u.file.size) + ' · sent in ' + (secs < 1 ? '<1' : Math.round(secs)) + ' s'
+      + (u.saved && u.saved !== u.file.name ? ' · saved as ' + u.saved : '');
+    else if (u.state === 'cancelled') meta = 'Cancelled';
+    else meta = 'Failed — ' + (u.error || 'unknown error');
+    row.querySelector('.meta').textContent = meta;
+    if (u.state === 'sending') {
+      const left = queue.filter(q => q.state === 'waiting' || q.state === 'sending');
+      const total = left.reduce((s, q) => s + q.file.size - q.done, 0);
+      $('upSummary').textContent = left.length + ' left · ' + size(total);
+    }
+  }
+
+  window.addEventListener('beforeunload', e => {
+    if (queue.some(q => q.state === 'sending' || q.state === 'waiting')) { e.preventDefault(); e.returnValue = ''; }
+  });
+
+  // ---- picking and dropping
+  $('pick').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+  const drop = $('drop');
+  ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
+  ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
+  drop.addEventListener('drop', e => {
+    const files = [...(e.dataTransfer.files || [])].filter(f => f.size > 0 || f.type);
+    if (files.length) addFiles(files);
+  });
+  document.addEventListener('dragover', e => e.preventDefault());
+  document.addEventListener('drop', e => e.preventDefault());
+
+  // ---- what's on the phone
+  let lastSig = '';
+  async function refresh() {
+    let st;
+    try {
+      const r = await fetch('/api/state', { cache: 'no-store' });
+      st = await r.json();
+      $('banner').classList.remove('show');
+    } catch (e) {
+      $('banner').classList.add('show');
+      $('who').innerHTML = '<span class="dot off"></span>Not reaching the phone';
+      return;
+    }
+    $('who').innerHTML = '<span class="dot"></span>Connected to ' + esc(st.phone);
+    $('free').textContent = size(st.free) + ' free';
+
+    // transfers the phone is doing (including other devices)
+    const mv = $('moving');
+    const others = st.active.filter(a => !(a.upload && busy && queue.some(q => q.state === 'sending' && q.file.name === a.name)));
+    mv.style.display = others.length ? '' : 'none';
+    mv.innerHTML = others.map(a => '<div class="row"><div class="main"><div class="name">' + (a.upload ? '↓ ' : '↑ ') + esc(a.name)
+      + '</div><div class="bar"><i style="width:' + (a.size ? a.done / a.size * 100 : 0).toFixed(1) + '%"></i></div><div class="meta">'
+      + (a.upload ? 'Arriving · ' : 'Downloading · ') + size(a.done) + ' of ' + size(a.size) + ' · ' + size(a.speed) + '/s</div></div></div>').join('');
+
+    const sig = JSON.stringify(st.files);
+    if (sig === lastSig) return;
+    lastSig = sig;
+    const box = $('files');
+    if (!st.files.length) {
+      box.innerHTML = '<div class="empty">Nothing here yet. Send files from this side, or put files on the shelf from the phone app.</div>';
+      return;
+    }
+    box.innerHTML = '';
+    for (const f of st.files) {
+      const row = document.createElement('div');
+      row.className = 'row';
+      const src = f.phone ? '<span class="tag">phone</span>' : '';
+      const from = f.phone ? 'on the phone' : (f.from ? 'from ' + esc(f.from) : 'received');
+      row.innerHTML = '<div class="main"><div class="name">' + esc(f.name) + src + '</div><div class="meta">'
+        + size(f.size) + ' · ' + from + ' · ' + when(f.time) + '</div></div>';
+      const a = document.createElement('a');
+      a.className = 'btn small';
+      a.textContent = 'Download';
+      a.href = '/api/file?dl=1&id=' + encodeURIComponent(f.id);
+      a.setAttribute('download', f.name);
+      row.appendChild(a);
+      const x = document.createElement('button');
+      x.className = 'x';
+      x.title = f.phone ? 'Take off the shelf (the file stays on the phone)' : 'Delete from the phone';
+      x.textContent = '✕';
+      x.onclick = async () => {
+        if (!f.phone && !confirm('Delete "' + f.name + '" from the phone?')) return;
+        await fetch('/api/delete?id=' + encodeURIComponent(f.id), { method: 'POST' });
+        lastSig = '';
+        refresh();
+      };
+      row.appendChild(x);
+      box.appendChild(row);
+    }
+  }
+
+  refresh();
+  setInterval(refresh, 2000);
+})();
+</script>
+</body>
+</html>
