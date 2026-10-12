@@ -117,16 +117,44 @@ public class HubService extends Service implements Http.Events {
 
     @Override
     public void onTransferEnd(Http.Active a, boolean ok, String err) {
-        String what = a.upload ? "Received " + a.name : "Sent " + a.name;
-        if (ok) addLog(what + " · " + MainActivity.size(a.size));
-        else addLog((a.upload ? "Receiving " : "Sending ") + a.name + " failed — " + err);
+        if (a.group != null && ok) {
+            // a folder upload: keep one running line instead of one per file
+            synchronized (log) {
+                if (a.group.equals(groupName) && !log.isEmpty() && log.get(0).endsWith(groupTag)) {
+                    groupFiles++;
+                    groupBytes += a.size;
+                    log.set(0, stamp() + "  Receiving folder " + a.group + " · " + groupFiles + " files · "
+                            + MainActivity.size(groupBytes) + groupTag);
+                } else {
+                    groupName = a.group;
+                    groupFiles = 1;
+                    groupBytes = a.size;
+                    addLog("Receiving folder " + a.group + " · 1 file · " + MainActivity.size(a.size) + groupTag);
+                }
+            }
+        } else if (ok) {
+            if (a.fileCount > 0) addLog("Sent " + a.name + " (" + a.fileCount + " files) · " + MainActivity.size(a.size));
+            else addLog((a.upload ? "Received " : "Sent ") + a.name + " · " + MainActivity.size(a.size));
+        } else {
+            addLog((a.upload ? "Receiving " : "Sending ") + a.name + " failed — " + err);
+        }
         updateNotification(true);
     }
 
+    private static final String groupTag = "\u200b";   // invisible marker for the running folder line
+    private String groupName;
+    private int groupFiles;
+    private long groupBytes;
+
+    private static String stamp() {
+        return new java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(new java.util.Date());
+    }
+
     private void addLog(String s) {
-        String t = new java.text.SimpleDateFormat("HH:mm", Locale.getDefault()).format(new java.util.Date());
-        log.add(0, t + "  " + s);
-        while (log.size() > 50) log.remove(log.size() - 1);
+        synchronized (log) {
+            log.add(0, stamp() + "  " + s);
+            while (log.size() > 50) log.remove(log.size() - 1);
+        }
     }
 
     // ---------------------------------------------------------------- notification
@@ -149,6 +177,7 @@ public class HubService extends Service implements Http.Events {
             Http.Active a = http.active.get(0);
             int pct = a.size > 0 ? (int) (a.done * 100 / a.size) : 0;
             text = (a.upload ? "Receiving " : "Sending ") + a.name + " · " + pct + "%";
+            if (a.fileCount > 0) text += " · " + a.files + "/" + a.fileCount + " files";
             if (http.active.size() > 1) text += " (+" + (http.active.size() - 1) + " more)";
         } else {
             List<String> urls = addresses(http.port());

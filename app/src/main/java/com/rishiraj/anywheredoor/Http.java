@@ -8,6 +8,7 @@ import java.io.BufferedOutputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FilterOutputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -18,23 +19,33 @@ import java.net.SocketTimeoutException;
 import java.net.URLDecoder;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.attribute.FileTime;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.TimeZone;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.zip.Deflater;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
 /**
  * A tiny HTTP/1.1 server made for one job: moving big files in and out of the phone
  * without holding them in memory. Every response closes the connection.
  *
- *   GET  /                      the web page (assets/index.html)
- *   GET  /api/state             phone name, free space, shelf, transfers (JSON)
- *   PUT  /api/upload?name=&from= raw file body, Content-Length required
- *   GET  /api/file?id=[&dl=1]   download (supports Range, so browsers can resume)
- *   POST /api/delete?id=        delete a received file / unshare a phone file
+ *   GET  /                                 the web page (assets/index.html)
+ *   GET  /api/state                        phone name, free space, shelf, transfers (JSON)
+ *   GET  /api/folder?id=                   files in a folder, oldest first (JSON)
+ *   PUT  /api/upload?path=&mtime=&batch=&from=   raw file body, Content-Length required
+ *   GET  /api/file?id=[&dl=1]              one file (supports Range, so browsers can resume)
+ *   GET  /api/zip?id=                      a folder (or id=all) as a ZIP, oldest file first,
+ *                                          every entry stamped with its original time
+ *   POST /api/delete?id=                   delete a received file/folder, or unshare a phone one
  */
 public class Http {
 
@@ -47,11 +58,14 @@ public class Http {
         public final long size;
         public final boolean upload;   // true = coming into the phone
         public final String who;
+        public final String group;     // top-level folder for folder uploads, else null
         public final long start = System.nanoTime();
         public volatile long done;
+        public volatile int files;     // for ZIPs: files written so far
+        public volatile int fileCount;
 
-        Active(String name, long size, boolean upload, String who) {
-            this.name = name; this.size = size; this.upload = upload; this.who = who;
+        Active(String name, long size, boolean upload, String who, String group) {
+            this.name = name; this.size = size; this.upload = upload; this.who = who; this.group = group;
         }
 
         public double speed() {
@@ -134,6 +148,8 @@ public class Http {
         Map<String, String> headers = new HashMap<>();
         InputStream body;
         String client;
+
+        String q(String k) { return query.get(k); }
     }
 
     private void handle(Socket s) {
@@ -194,15 +210,21 @@ public class Http {
             case "/api/state":
                 if (m.equals("GET")) { sendJson(out, 200, state()); return; }
                 break;
+            case "/api/folder":
+                if (m.equals("GET")) { sendJson(out, 200, folder(r.q("id"))); return; }
+                break;
             case "/api/upload":
                 if (m.equals("PUT") || m.equals("POST")) { upload(r, out); return; }
                 break;
             case "/api/file":
                 if (m.equals("GET")) { download(r, out, head); return; }
                 break;
+            case "/api/zip":
+                if (m.equals("GET")) { zip(r, out, head); return; }
+                break;
             case "/api/delete":
                 if (m.equals("POST")) {
-                    boolean ok = shelf.remove(r.query.get("id"));
+                    boolean ok = shelf.remove(r.q("id"));
                     sendJson(out, ok ? 200 : 404, "{\"ok\":" + ok + "}");
                     return;
                 }
@@ -220,17 +242,29 @@ public class Http {
     // ---------------------------------------------------------------- upload (into the phone)
 
     private void upload(Req r, OutputStream out) throws IOException {
-        String name = r.query.get("name");
-        String from = r.query.get("from");
+        String path = r.q("path");
+        if (path == null || path.isEmpty()) path = r.q("name");
+        String from = r.q("from");
         if (from == null || from.trim().isEmpty()) from = r.client;
+        String batch = r.q("batch") == null ? "" : r.q("batch");
+        long mtime = 0;
+        try { mtime = Long.parseLong(r.q("mtime")); } catch (Exception ignored) { }
         long len;
         try { len = Long.parseLong(r.headers.get("content-length")); } catch (Exception e) { len = -1; }
-        if (name == null || name.isEmpty() || len < 0) {
-            sendJson(out, 400, "{\"error\":\"Need name and Content-Length\"}");
+        if (path == null || path.isEmpty() || len < 0) {
+            sendJson(out, 400, "{\"error\":\"Need a file name and Content-Length\"}");
             return;
         }
         if (len > shelf.freeSpace() - 50L * 1024 * 1024) {
             sendJson(out, 507, "{\"error\":\"Not enough space on the phone\"}");
+            return;
+        }
+
+        File target;
+        try {
+            target = shelf.target(path, batch);
+        } catch (IOException e) {
+            sendJson(out, 500, "{\"error\":" + js(e.getMessage()) + "}");
             return;
         }
         if ("100-continue".equalsIgnoreCase(r.headers.get("expect"))) {
@@ -238,9 +272,10 @@ public class Http {
             out.flush();
         }
 
-        File target = shelf.reserve(name);
-        File part = new File(shelf.dir(), "." + target.getName() + ".part");
-        Active a = new Active(target.getName(), len, true, from);
+        String rel = shelf.rel(target);
+        int slash = rel.indexOf('/');
+        File part = Shelf.partOf(target);
+        Active a = new Active(rel, len, true, from, slash > 0 ? rel.substring(0, slash) : null);
         active.add(a);
         events.onTransferStart(a);
         boolean ok = false;
@@ -262,28 +297,29 @@ public class Http {
         } catch (IOException e) {
             err = e.getMessage() == null ? "Upload stopped" : e.getMessage();
         }
-        File finalFile = target;
+        boolean replaced = false;
         if (ok) {
-            if (finalFile.exists()) finalFile = shelf.reserve(name);
-            ok = part.renameTo(finalFile);
+            replaced = target.exists();      // a retried file inside a folder replaces the earlier try
+            if (replaced) target.delete();
+            ok = part.renameTo(target);
             if (!ok) err = "Couldn't save the file";
         }
         if (!ok) part.delete();
         active.remove(a);
+        if (ok) shelf.received(target, mtime, from, replaced);
         events.onTransferEnd(a, ok, err);
         if (ok) {
-            shelf.received(finalFile, from);
-            sendJson(out, 200, "{\"ok\":true,\"name\":" + js(finalFile.getName()) + "}");
+            sendJson(out, 200, "{\"ok\":true,\"path\":" + js(rel) + "}");
         } else {
             try { sendJson(out, 500, "{\"error\":" + js(err) + "}"); } catch (IOException ignored) { }
         }
     }
 
-    // ---------------------------------------------------------------- download (out of the phone)
+    // ---------------------------------------------------------------- download one file
 
     private void download(Req r, OutputStream out, boolean head) throws IOException {
-        Shelf.Item it = shelf.get(r.query.get("id"));
-        if (it == null) { sendJson(out, 404, "{\"error\":\"That file is no longer here\"}"); return; }
+        Shelf.Item it = shelf.get(r.q("id"));
+        if (it == null || it.folder) { sendJson(out, 404, "{\"error\":\"That file is no longer here\"}"); return; }
 
         long size = it.size, start = 0, end = size - 1;
         boolean partial = false;
@@ -312,15 +348,14 @@ public class Http {
         h.append("Content-Type: ").append(mime(it.name)).append("\r\n");
         h.append("Content-Length: ").append(len).append("\r\n");
         h.append("Accept-Ranges: bytes\r\n");
+        h.append("Last-Modified: ").append(httpDate(it.time)).append("\r\n");
         if (partial) h.append("Content-Range: bytes ").append(start).append('-').append(end).append('/').append(size).append("\r\n");
-        String disp = "1".equals(r.query.get("dl")) ? "attachment" : "inline";
-        h.append("Content-Disposition: ").append(disp).append("; filename=\"").append(ascii(it.name))
-                .append("\"; filename*=UTF-8''").append(enc(it.name)).append("\r\n");
+        h.append("Content-Disposition: ").append("1".equals(r.q("dl")) ? "attachment" : "inline").append(disposition(it.name));
         h.append("Cache-Control: no-store\r\nConnection: close\r\n\r\n");
         out.write(h.toString().getBytes(StandardCharsets.UTF_8));
         if (head || len == 0) return;
 
-        Active a = new Active(it.name, len, false, r.client);
+        Active a = new Active(it.name, len, false, r.client, null);
         active.add(a);
         events.onTransferStart(a);
         boolean ok = false;
@@ -351,12 +386,80 @@ public class Http {
         }
     }
 
-    // ---------------------------------------------------------------- state JSON
+    // ---------------------------------------------------------------- download a folder as ZIP
+
+    /**
+     * Streams a ZIP without knowing its length up front. Entries go in oldest-first order
+     * and carry each file's original modified time (DOS time + the precise UTC extra field),
+     * so extracting on Windows/Mac/Linux restores both the files' times and their sequence.
+     * Content is stored without compression (level 0) to keep the phone's CPU out of the way.
+     */
+    private void zip(Req r, OutputStream out, boolean head) throws IOException {
+        String id = r.q("id");
+        String zipName;
+        if ("all".equals(id)) {
+            zipName = "AnyWhereDoor-" + new SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.ROOT).format(new Date()) + ".zip";
+        } else {
+            Shelf.Item it = shelf.get(id);
+            if (it == null || !it.folder) { sendJson(out, 404, "{\"error\":\"That folder is no longer here\"}"); return; }
+            zipName = it.name + ".zip";
+        }
+        List<Shelf.Entry> entries = shelf.entries(id);
+        long total = 0;
+        for (Shelf.Entry e : entries) total += e.size;
+
+        String h = "HTTP/1.1 200 OK\r\n"
+                + "Content-Type: application/zip\r\n"
+                + "Content-Disposition: attachment" + disposition(zipName)
+                + "Cache-Control: no-store\r\nConnection: close\r\n\r\n";
+        out.write(h.getBytes(StandardCharsets.UTF_8));
+        if (head) return;
+
+        Active a = new Active(zipName, total, false, r.client, null);
+        a.fileCount = entries.size();
+        active.add(a);
+        events.onTransferStart(a);
+        boolean ok = false;
+        String err = null;
+        try {
+            ZipOutputStream zos = new ZipOutputStream(new FilterOutputStream(out) {
+                @Override public void write(byte[] b, int off, int len) throws IOException { out.write(b, off, len); }
+                @Override public void close() throws IOException { out.flush(); } // keep the socket for us
+            });
+            zos.setLevel(Deflater.NO_COMPRESSION);
+            byte[] buf = new byte[BUF];
+            for (Shelf.Entry e : entries) {
+                ZipEntry ze = new ZipEntry(e.path);
+                if (e.time > 0) ze.setLastModifiedTime(FileTime.fromMillis(e.time));
+                zos.putNextEntry(ze);
+                try (InputStream src = shelf.open(e)) {
+                    int n;
+                    while ((n = src.read(buf)) > 0) {
+                        zos.write(buf, 0, n);
+                        a.done += n;
+                    }
+                }
+                zos.closeEntry();
+                a.files++;
+            }
+            zos.finish();
+            zos.close();
+            ok = true;
+        } catch (IOException e) {
+            err = "Download stopped";
+        } finally {
+            active.remove(a);
+            events.onTransferEnd(a, ok, err);
+        }
+    }
+
+    // ---------------------------------------------------------------- JSON
 
     private String state() {
-        StringBuilder b = new StringBuilder(2048);
+        StringBuilder b = new StringBuilder(4096);
         b.append("{\"phone\":").append(js(phoneName));
         b.append(",\"free\":").append(shelf.freeSpace());
+        b.append(",\"rev\":").append(shelf.rev());
         b.append(",\"files\":[");
         boolean first = true;
         for (Shelf.Item it : shelf.list()) {
@@ -368,7 +471,13 @@ public class Http {
                     .append(",\"time\":").append(it.time)
                     .append(",\"phone\":").append(it.fromPhone)
                     .append(",\"from\":").append(it.from == null ? "null" : js(it.from))
-                    .append('}');
+                    .append(",\"folder\":").append(it.folder);
+            if (it.folder) {
+                b.append(",\"count\":").append(it.count)
+                        .append(",\"first\":").append(it.first)
+                        .append(",\"last\":").append(it.last);
+            }
+            b.append('}');
         }
         b.append("],\"active\":[");
         first = true;
@@ -380,10 +489,33 @@ public class Http {
                     .append(",\"done\":").append(a.done)
                     .append(",\"upload\":").append(a.upload)
                     .append(",\"speed\":").append((long) a.speed())
+                    .append(",\"files\":").append(a.files)
+                    .append(",\"fileCount\":").append(a.fileCount)
                     .append('}');
         }
         b.append("]}");
         return b.toString();
+    }
+
+    /** Files in a folder, oldest first, with paths shown relative to the folder. */
+    private String folder(String id) {
+        Shelf.Item it = shelf.get(id);
+        if (it == null || !it.folder) return "{\"files\":[]}";
+        List<Shelf.Entry> es = shelf.entries(id);
+        StringBuilder b = new StringBuilder(64 + es.size() * 96);
+        b.append("{\"files\":[");
+        boolean first = true;
+        for (Shelf.Entry e : es) {
+            if (!first) b.append(',');
+            first = false;
+            String p = e.path.substring(e.path.indexOf('/') + 1);
+            b.append("{\"id\":").append(js(e.id))
+                    .append(",\"path\":").append(js(p))
+                    .append(",\"size\":").append(e.size)
+                    .append(",\"time\":").append(e.time)
+                    .append('}');
+        }
+        return b.append("]}").toString();
     }
 
     // ---------------------------------------------------------------- helpers
@@ -425,6 +557,16 @@ public class Http {
             case 507: return "Insufficient Storage";
             default: return code >= 500 ? "Server Error" : "Status";
         }
+    }
+
+    private static String disposition(String name) {
+        return "; filename=\"" + ascii(name) + "\"; filename*=UTF-8''" + enc(name) + "\r\n";
+    }
+
+    private static String httpDate(long ms) {
+        SimpleDateFormat f = new SimpleDateFormat("EEE, dd MMM yyyy HH:mm:ss 'GMT'", Locale.US);
+        f.setTimeZone(TimeZone.getTimeZone("GMT"));
+        return f.format(new Date(ms));
     }
 
     private static String readLine(InputStream in) throws IOException {

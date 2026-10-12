@@ -173,17 +173,37 @@
     </LinearLayout>
 
     <!-- Share -->
-    <Button
-        android:id="@+id/btnShare"
+    <LinearLayout
         android:layout_width="match_parent"
-        android:layout_height="54dp"
+        android:layout_height="wrap_content"
         android:layout_marginTop="16dp"
-        android:background="@drawable/btn_ghost"
-        android:stateListAnimator="@null"
-        android:text="＋  Put files from this phone on the shelf"
-        android:textAllCaps="false"
-        android:textColor="@color/text"
-        android:textSize="15sp" />
+        android:orientation="horizontal">
+
+        <Button
+            android:id="@+id/btnShare"
+            android:layout_width="0dp"
+            android:layout_height="54dp"
+            android:layout_weight="1"
+            android:background="@drawable/btn_ghost"
+            android:stateListAnimator="@null"
+            android:text="＋  Share files"
+            android:textAllCaps="false"
+            android:textColor="@color/text"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/btnShareFolder"
+            android:layout_width="0dp"
+            android:layout_height="54dp"
+            android:layout_weight="1"
+            android:layout_marginStart="10dp"
+            android:background="@drawable/btn_ghost"
+            android:stateListAnimator="@null"
+            android:text="＋  Share a folder"
+            android:textAllCaps="false"
+            android:textColor="@color/text"
+            android:textSize="15sp" />
+    </LinearLayout>
 
     <!-- Shelf -->
     <LinearLayout

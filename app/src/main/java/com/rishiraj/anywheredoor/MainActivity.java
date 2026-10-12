@@ -36,6 +36,7 @@ public class MainActivity extends Activity {
 
     private static final int REQ_PICK = 10;
     private static final int REQ_PERMS = 11;
+    private static final int REQ_TREE = 12;
 
     private TextView status, address, otherAddresses, hint, free, folder, log, shelfEmpty, myName;
     private View dot, activeBox;
@@ -80,6 +81,7 @@ public class MainActivity extends Activity {
         });
         findViewById(R.id.btnHotspot).setOnClickListener(v -> openHotspotSettings());
         findViewById(R.id.btnShare).setOnClickListener(v -> pickFiles());
+        findViewById(R.id.btnShareFolder).setOnClickListener(v -> pickFolder());
         address.setOnClickListener(v -> copy(address.getText().toString()));
 
         askPermissions();
@@ -148,9 +150,35 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void pickFolder() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            startActivityForResult(i, REQ_TREE);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, "No folder picker on this phone", Toast.LENGTH_LONG).show();
+        }
+    }
+
     @Override
     protected void onActivityResult(int req, int res, Intent data) {
         super.onActivityResult(req, res, data);
+        if (req == REQ_TREE && res == RESULT_OK && data != null && data.getData() != null) {
+            HubService s = HubService.get();
+            if (s == null) { Toast.makeText(this, "Open the door first", Toast.LENGTH_SHORT).show(); return; }
+            Uri tree = data.getData();
+            Toast.makeText(this, "Reading the folder…", Toast.LENGTH_SHORT).show();
+            new Thread(() -> {
+                Shelf.Item it = s.shelf.shareTree(tree);
+                runOnUiThread(() -> {
+                    Toast.makeText(this, it == null ? "Couldn't read that folder"
+                            : it.name + " is on the shelf · " + it.count + " files", Toast.LENGTH_LONG).show();
+                    shelfSignature = "";
+                    refresh();
+                });
+            }).start();
+            return;
+        }
         if (req != REQ_PICK || res != RESULT_OK || data == null) return;
         List<Uri> uris = new ArrayList<>();
         if (data.getClipData() != null) {
@@ -196,11 +224,15 @@ public class MainActivity extends Activity {
             flushPending();
             return;
         }
-        int n = s.shelf.share(uris, persistable);
-        Toast.makeText(this, n == 0 ? "Those files are already on the shelf"
-                : n + (n == 1 ? " file is" : " files are") + " on the shelf now", Toast.LENGTH_SHORT).show();
-        shelfSignature = "";
-        refresh();
+        new Thread(() -> {
+            int n = s.shelf.share(uris, persistable);
+            runOnUiThread(() -> {
+                Toast.makeText(this, n == 0 ? "Those files are already on the shelf"
+                        : n + (n == 1 ? " file is" : " files are") + " on the shelf now", Toast.LENGTH_SHORT).show();
+                shelfSignature = "";
+                refresh();
+            });
+        }).start();
     }
 
     // ---------------------------------------------------------------- screen
@@ -306,7 +338,7 @@ public class MainActivity extends Activity {
 
     private void renderShelf(List<Shelf.Item> items, HubService s) {
         StringBuilder sig = new StringBuilder();
-        for (Shelf.Item it : items) sig.append(it.id).append(it.size).append(it.uri != null).append('|');
+        for (Shelf.Item it : items) sig.append(it.id).append(it.size).append(it.count).append(it.uri != null).append('|');
         if (sig.toString().equals(shelfSignature)) return;
         shelfSignature = sig.toString();
 
@@ -326,12 +358,18 @@ public class MainActivity extends Activity {
 
             LinearLayout col = new LinearLayout(this);
             col.setOrientation(LinearLayout.VERTICAL);
-            TextView name = text(it.name, 15, R.color.text, false);
+            TextView name = text((it.folder ? "📁  " : "") + it.name, 15, R.color.text, false);
             name.setSingleLine(true);
             name.setEllipsize(TextUtils.TruncateAt.MIDDLE);
             col.addView(name);
-            String meta = size(it.size) + " · " + (it.fromPhone ? "from this phone" : "received"
-                    + (it.from != null ? " from " + it.from : "")) + " · " + tf.format(new Date(it.time));
+            String origin = it.fromPhone ? "from this phone" : "received" + (it.from != null ? " from " + it.from : "");
+            String meta;
+            if (it.folder) {
+                meta = it.count + (it.count == 1 ? " file · " : " files · ") + size(it.size) + " · " + origin;
+                if (it.count > 0) meta += "\n" + tf.format(new Date(it.first)) + "  →  " + tf.format(new Date(it.last));
+            } else {
+                meta = size(it.size) + " · " + origin + " · " + tf.format(new Date(it.time));
+            }
             col.addView(text(meta, 12, R.color.muted, false));
             row.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
@@ -349,14 +387,15 @@ public class MainActivity extends Activity {
         HubService s = HubService.get();
         if (s == null) return;
         if (it.fromPhone) {
-            s.shelf.remove(it.id); // the original file stays where it is
+            s.shelf.remove(it.id); // the original stays where it is
             shelfSignature = "";
             refresh();
             return;
         }
         new AlertDialog.Builder(this)
                 .setTitle("Delete " + it.name + "?")
-                .setMessage("This removes the received file from the phone.")
+                .setMessage(it.folder ? "This removes the received folder and all " + it.count + " files in it from the phone."
+                        : "This removes the received file from the phone.")
                 .setPositiveButton("Delete", (d, w) -> {
                     HubService h = HubService.get();
                     if (h != null) h.shelf.remove(it.id);
@@ -368,6 +407,11 @@ public class MainActivity extends Activity {
     }
 
     private void openItem(Shelf.Item it) {
+        if (it.folder) {
+            Toast.makeText(this, it.fromPhone ? "Shared from this phone · download it as a ZIP from the other device"
+                    : "Find it in Files → Download → AnyWhereDoor → " + it.name, Toast.LENGTH_LONG).show();
+            return;
+        }
         if (it.uri == null) {
             Toast.makeText(this, "Find it in Files → Download → AnyWhereDoor", Toast.LENGTH_SHORT).show();
             return;

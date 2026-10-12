@@ -14,7 +14,7 @@
     margin: 0; background: var(--bg); color: var(--text);
     font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
   }
-  .wrap { max-width: 860px; margin: 0 auto; padding: 24px 16px 60px; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 24px 16px 60px; }
   header { display: flex; align-items: center; gap: 12px; }
   header svg { width: 44px; height: 44px; flex: none; }
   h1 { font-size: 22px; margin: 0; letter-spacing: -.01em; }
@@ -25,29 +25,31 @@
   .banner.show { display: block; }
 
   .grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 20px; }
-  @media (min-width: 760px) { .grid { grid-template-columns: 1fr 1fr; } }
+  @media (min-width: 820px) { .grid { grid-template-columns: 5fr 6fr; } }
+  section { min-width: 0; }
 
   .card { background: var(--card); border: 1px solid var(--line); border-radius: 16px; }
-  .label { font-size: 12px; font-weight: 700; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; display: flex; justify-content: space-between; }
+  .label { font-size: 12px; font-weight: 700; letter-spacing: .08em; color: var(--muted); margin: 0 0 8px; display: flex; justify-content: space-between; align-items: center; gap: 8px; }
   .label span { font-weight: 400; letter-spacing: 0; }
 
   .drop {
     display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center;
-    min-height: 190px; padding: 24px; cursor: pointer; border: 2px dashed var(--line);
+    min-height: 200px; padding: 24px; border: 2px dashed var(--line);
     transition: border-color .15s, background .15s;
   }
-  .drop:hover, .drop.over { border-color: var(--door); background: #21171d; }
+  .drop.over { border-color: var(--door); background: #21171d; }
   .drop b { font-size: 17px; }
-  .drop .sub { margin-top: 6px; }
+  .drop .sub { margin-top: 6px; max-width: 340px; }
+  .drop .btns { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; justify-content: center; }
   .btn {
     display: inline-block; border: 0; border-radius: 12px; padding: 10px 16px; font: inherit; font-weight: 600;
     background: var(--door); color: #fff; cursor: pointer; text-decoration: none; white-space: nowrap;
   }
   .btn:hover { background: var(--door2); }
   .btn.ghost { background: transparent; color: var(--text); border: 1px solid var(--line); }
-  .btn.ghost:hover { border-color: var(--muted); }
+  .btn.ghost:hover { border-color: var(--muted); background: transparent; }
   .btn.small { padding: 6px 12px; font-size: 13px; border-radius: 10px; }
-  .drop .btn { margin-top: 14px; }
+  .btn.tiny { padding: 3px 9px; font-size: 12px; border-radius: 8px; font-weight: 500; }
 
   .me { display: flex; align-items: center; gap: 8px; margin-top: 10px; font-size: 13px; color: var(--muted); }
   .me input {
@@ -55,7 +57,7 @@
     font: inherit; padding: 4px 8px; width: 150px;
   }
 
-  .row { display: flex; align-items: center; gap: 12px; padding: 12px 14px; border-top: 1px solid var(--line); }
+  .row { display: flex; align-items: center; gap: 10px; padding: 12px 14px; border-top: 1px solid var(--line); }
   .row:first-child { border-top: 0; }
   .row .main { flex: 1; min-width: 0; }
   .name { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: 500; }
@@ -64,11 +66,27 @@
   .bar i { display: block; height: 100%; width: 0; background: var(--door); transition: width .2s; }
   .bar.done i { background: var(--ok); }
   .bar.fail i { background: var(--bad); }
-  .x { background: none; border: 0; color: var(--muted); font-size: 16px; cursor: pointer; padding: 6px 8px; border-radius: 8px; }
+  .x { background: none; border: 0; color: var(--muted); font-size: 16px; cursor: pointer; padding: 6px 8px; border-radius: 8px; flex: none; }
   .x:hover { color: var(--text); background: var(--line); }
   .empty { padding: 16px 14px; color: var(--muted); font-size: 14px; }
   .tag { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: #2c2330; color: #f5a3c1; margin-left: 6px; vertical-align: 1px; }
-  .hidden { display: none; }
+  .hidden { display: none !important; }
+  .toggle { background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; padding: 2px 0; }
+  .toggle:hover { color: var(--text); }
+
+  #files { overflow: hidden; }
+  .inside { border-top: 1px solid var(--line); background: #151a21; max-height: 420px; overflow: auto; }
+  .inside table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .inside td { padding: 6px 10px; border-top: 1px solid #222a33; white-space: nowrap; }
+  .inside tr:first-child td { border-top: 0; }
+  .inside td.n { color: var(--muted); text-align: right; width: 1%; font-variant-numeric: tabular-nums; }
+  .inside td.p { overflow: hidden; text-overflow: ellipsis; max-width: 0; width: 100%; }
+  .inside td.s, .inside td.t { color: var(--muted); font-variant-numeric: tabular-nums; width: 1%; }
+  .inside td.a { width: 1%; }
+  .inside a { color: var(--door); text-decoration: none; }
+  .inside a:hover { text-decoration: underline; }
+  .inside .more { padding: 10px; color: var(--muted); font-size: 13px; }
+  .note { margin-top: 10px; color: var(--muted); font-size: 12px; }
   footer { margin-top: 28px; color: var(--muted); font-size: 12px; text-align: center; }
 </style>
 </head>
@@ -95,12 +113,16 @@
   <div class="grid">
     <section>
       <p class="label">SEND TO THE PHONE</p>
-      <label class="card drop" id="drop">
-        <b>Drop files here</b>
-        <div class="sub">Any size, any number. They're saved on the phone, and every device on the hotspot can download them.</div>
-        <span class="btn">Choose files</span>
-        <input type="file" id="pick" multiple class="hidden">
-      </label>
+      <div class="card drop" id="drop">
+        <b>Drop files or folders here</b>
+        <div class="sub">Any size, any number. Files keep their original modified time and go up oldest first, so a folder's sequence stays intact.</div>
+        <div class="btns">
+          <button class="btn" id="btnFiles">Choose files</button>
+          <button class="btn ghost" id="btnFolder">Choose folder</button>
+        </div>
+        <input type="file" id="pickFiles" multiple class="hidden">
+        <input type="file" id="pickFolder" webkitdirectory directory multiple class="hidden">
+      </div>
       <div class="me">Show me as <input id="me" maxlength="40"></div>
 
       <div id="upBox" class="hidden">
@@ -110,9 +132,13 @@
     </section>
 
     <section>
-      <p class="label">ON THE PHONE <span id="free"></span></p>
+      <p class="label">ON THE PHONE
+        <span><span id="free"></span>
+          <a class="btn ghost tiny hidden" id="zipAll" href="/api/zip?id=all" download style="margin-left:8px">Download all as ZIP</a></span>
+      </p>
       <div class="card" id="moving" style="margin-bottom:12px; display:none"></div>
       <div class="card" id="files"><div class="empty">Loading…</div></div>
+      <div class="note">Folders download as a ZIP with every file's original time, oldest first — extract it and the sequence is exactly as it was. A single file downloaded on its own gets today's date from the browser.</div>
     </section>
   </div>
 
@@ -129,11 +155,21 @@
     do { b /= 1024; i++; } while (b >= 1024 && i < u.length - 1);
     return (b < 10 ? b.toFixed(1) : b.toFixed(0)) + ' ' + u[i];
   };
+  const pad = n => String(n).padStart(2, '0');
   const when = t => {
     const d = new Date(t), now = new Date();
-    const hm = d.toLocaleTimeString([], {hour: '2-digit', minute: '2-digit'});
+    const hm = pad(d.getHours()) + ':' + pad(d.getMinutes());
     return d.toDateString() === now.toDateString() ? hm : d.toLocaleDateString([], {day: 'numeric', month: 'short'}) + ', ' + hm;
   };
+  const stamp = t => {
+    const d = new Date(t);
+    return d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate()) + ' '
+      + pad(d.getHours()) + ':' + pad(d.getMinutes()) + ':' + pad(d.getSeconds());
+  };
+  const dur = s => s > 90 ? Math.round(s / 60) + ' min' : Math.max(1, Math.round(s)) + ' s';
+  const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: 'base' });
+  // oldest first; same time -> natural name order (img2 before img10)
+  const byTime = (a, b) => (a.mtime - b.mtime) || collator.compare(a.path, b.path);
 
   // ---- who am I
   const guess = () => {
@@ -149,125 +185,226 @@
   $('me').value = me || guess();
   $('me').addEventListener('change', () => { try { localStorage.setItem('awd-me', $('me').value.trim()); } catch (e) {} });
 
-  // ---- uploads (one at a time, so each gets the full link speed)
-  const queue = [];
-  let busy = false, nextId = 1;
+  // ================================================================ uploads
+  // A job is one folder, or one batch of loose files. Jobs run one after another,
+  // and inside a job files go up one at a time, oldest first.
+  const jobs = [];
+  let running = null, nextId = 1;
 
-  function addFiles(list) {
-    for (const f of list) {
-      const u = { id: nextId++, file: f, done: 0, state: 'waiting', xhr: null, t0: 0 };
-      queue.push(u);
-    }
+  function addJob(label, items, folder) {
+    items.sort(byTime);
+    const job = {
+      id: nextId++, label, items, folder,
+      total: items.reduce((s, it) => s + it.file.size, 0),
+      sentBytes: 0, cur: 0, index: 0, state: 'waiting', error: '',
+      batch: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      t0: 0, t1: 0, xhr: null, cancelled: false
+    };
+    jobs.push(job);
     $('upBox').classList.remove('hidden');
-    drawUploads();
+    drawJobs();
     pump();
+  }
+
+  function addLoose(files) {
+    const items = [...files].map(f => ({ file: f, path: f.name, mtime: f.lastModified || Date.now() }));
+    if (!items.length) return;
+    addJob(items.length === 1 ? items[0].path : items.length + ' files', items, false);
+  }
+
+  function addFolderItems(items) {
+    // group by top-level folder: one job per folder
+    const groups = new Map();
+    for (const it of items) {
+      const top = it.path.split('/')[0];
+      if (!groups.has(top)) groups.set(top, []);
+      groups.get(top).push(it);
+    }
+    for (const [name, list] of groups) addJob(name, list, true);
   }
 
   function pump() {
-    if (busy) return;
-    const u = queue.find(q => q.state === 'waiting');
-    if (!u) return;
-    busy = true;
-    u.state = 'sending';
-    u.t0 = performance.now();
-    const xhr = new XMLHttpRequest();
-    u.xhr = xhr;
-    const from = $('me').value.trim() || guess();
-    xhr.open('PUT', '/api/upload?name=' + encodeURIComponent(u.file.name) + '&from=' + encodeURIComponent(from));
-    xhr.upload.onprogress = e => { u.done = e.loaded; drawUpload(u); };
-    xhr.onload = () => {
-      if (xhr.status === 200) {
-        u.state = 'done'; u.done = u.file.size;
-        try { u.saved = JSON.parse(xhr.responseText).name; } catch (e) {}
-      } else {
-        u.state = 'failed';
-        try { u.error = JSON.parse(xhr.responseText).error; } catch (e) { u.error = 'Phone said ' + xhr.status; }
+    if (running) return;
+    const job = jobs.find(j => j.state === 'waiting');
+    if (!job) return;
+    running = job;
+    job.state = 'sending';
+    job.t0 = job.t0 || performance.now();
+    job.t1 = 0;
+    runJob(job).then(() => {
+      running = null;
+      job.t1 = performance.now();
+      drawJobs();
+      refresh();
+      pump();
+    });
+  }
+
+  async function runJob(job) {
+    while (job.index < job.items.length) {
+      if (job.cancelled) { job.state = 'cancelled'; return; }
+      const it = job.items[job.index];
+      let tries = 0, res;
+      for (;;) {
+        res = await sendOne(job, it);
+        if (res.ok || res.aborted || ++tries >= 3) break;
+        await new Promise(r => setTimeout(r, 1500));       // brief wait, then retry this file
       }
-      finish(u);
-    };
-    xhr.onerror = () => { u.state = 'failed'; u.error = 'Connection to the phone dropped'; finish(u); };
-    xhr.onabort = () => { u.state = 'cancelled'; finish(u); };
-    xhr.send(u.file);
-    drawUploads();
+      if (res.aborted) { job.state = 'cancelled'; return; }
+      if (!res.ok) { job.state = 'failed'; job.error = 'Stopped at ' + it.path + ' — ' + res.error; return; }
+      job.sentBytes += it.file.size;
+      job.cur = 0;
+      job.index++;
+      drawJob(job);
+    }
+    job.state = 'done';
   }
 
-  function finish(u) {
-    u.t1 = performance.now();
-    busy = false;
-    drawUploads();
-    refresh();
-    pump();
+  function sendOne(job, it) {
+    return new Promise(resolve => {
+      const xhr = new XMLHttpRequest();
+      job.xhr = xhr;
+      job.cur = 0;
+      const from = $('me').value.trim() || guess();
+      const qs = 'path=' + encodeURIComponent(job.folder ? it.path : it.file.name)
+        + '&mtime=' + encodeURIComponent(Math.round(it.mtime))
+        + '&batch=' + encodeURIComponent(job.batch)
+        + '&from=' + encodeURIComponent(from);
+      xhr.open('PUT', '/api/upload?' + qs);
+      xhr.upload.onprogress = e => { job.cur = e.loaded; drawJob(job); };
+      xhr.onload = () => {
+        if (xhr.status === 200) return resolve({ ok: true });
+        let err = 'Phone said ' + xhr.status;
+        try { err = JSON.parse(xhr.responseText).error || err; } catch (e) {}
+        resolve({ ok: false, error: err });
+      };
+      xhr.onerror = () => resolve({ ok: false, error: 'connection to the phone dropped' });
+      xhr.onabort = () => resolve({ aborted: true });
+      xhr.send(it.file);
+    });
   }
 
-  function drawUploads() {
+  function drawJobs() {
     const box = $('ups');
     box.innerHTML = '';
-    for (const u of queue) {
+    for (const job of jobs) {
       const row = document.createElement('div');
       row.className = 'row';
-      row.id = 'up' + u.id;
+      row.id = 'job' + job.id;
       row.innerHTML = '<div class="main"><div class="name"></div><div class="bar"><i></i></div><div class="meta"></div></div>'
-        + '<button class="x" title="Cancel">✕</button>';
-      row.querySelector('.name').textContent = u.file.name;
+        + '<button class="btn ghost tiny retry hidden">Retry</button><button class="x" title="Cancel">✕</button>';
+      row.querySelector('.name').textContent = (job.folder ? '📁 ' : '') + job.label;
+      row.querySelector('.retry').onclick = () => { job.state = 'waiting'; job.error = ''; drawJobs(); pump(); };
       row.querySelector('.x').onclick = () => {
-        if (u.state === 'sending') u.xhr.abort();
-        else if (u.state === 'waiting') { u.state = 'cancelled'; drawUploads(); }
-        else { queue.splice(queue.indexOf(u), 1); drawUploads(); if (!queue.length) $('upBox').classList.add('hidden'); }
+        if (job.state === 'sending') { job.cancelled = true; if (job.xhr) job.xhr.abort(); }
+        else if (job.state === 'waiting') { job.state = 'cancelled'; drawJobs(); }
+        else { jobs.splice(jobs.indexOf(job), 1); drawJobs(); if (!jobs.length) $('upBox').classList.add('hidden'); }
       };
       box.appendChild(row);
-      drawUpload(u);
+      drawJob(job);
     }
-    const left = queue.filter(q => q.state === 'waiting' || q.state === 'sending');
-    const total = left.reduce((s, q) => s + q.file.size - q.done, 0);
-    $('upSummary').textContent = left.length ? left.length + ' left · ' + size(total) : 'all done';
+    drawSummary();
   }
 
-  function drawUpload(u) {
-    const row = $('up' + u.id);
+  function drawJob(job) {
+    const row = $('job' + job.id);
     if (!row) return;
-    const pct = u.file.size ? u.done / u.file.size * 100 : (u.state === 'done' ? 100 : 0);
+    const done = job.sentBytes + job.cur;
+    const pct = job.total ? done / job.total * 100 : (job.state === 'done' ? 100 : 0);
     const bar = row.querySelector('.bar');
-    bar.className = 'bar' + (u.state === 'done' ? ' done' : u.state === 'failed' ? ' fail' : '');
+    bar.className = 'bar' + (job.state === 'done' ? ' done' : job.state === 'failed' ? ' fail' : '');
     bar.firstChild.style.width = pct.toFixed(1) + '%';
-    const secs = ((u.t1 || performance.now()) - u.t0) / 1000;
-    const speed = secs > 0.3 ? u.done / secs : 0;
+    const secs = ((job.t1 || performance.now()) - job.t0) / 1000;
+    const speed = secs > 0.3 ? done / secs : 0;
+    const n = job.items.length, files = n === 1 ? '' : (job.index + ' of ' + n + ' files · ');
     let meta;
-    if (u.state === 'waiting') meta = size(u.file.size) + ' · waiting';
-    else if (u.state === 'sending') {
-      const eta = speed > 0 ? (u.file.size - u.done) / speed : 0;
-      meta = size(u.done) + ' of ' + size(u.file.size) + ' · ' + size(speed) + '/s'
-        + (eta > 1 ? ' · ' + (eta > 90 ? Math.round(eta / 60) + ' min' : Math.round(eta) + ' s') + ' left' : '');
+    if (job.state === 'waiting') meta = (n > 1 ? n + ' files · ' : '') + size(job.total) + ' · waiting';
+    else if (job.state === 'sending') {
+      const eta = speed > 0 ? (job.total - done) / speed : 0;
+      meta = files + size(done) + ' of ' + size(job.total) + ' · ' + size(speed) + '/s' + (eta > 1 ? ' · ' + dur(eta) + ' left' : '');
+      if (n > 1 && job.items[job.index]) meta += '\nNow: ' + job.items[job.index].path;
     }
-    else if (u.state === 'done') meta = size(u.file.size) + ' · sent in ' + (secs < 1 ? '<1' : Math.round(secs)) + ' s'
-      + (u.saved && u.saved !== u.file.name ? ' · saved as ' + u.saved : '');
-    else if (u.state === 'cancelled') meta = 'Cancelled';
-    else meta = 'Failed — ' + (u.error || 'unknown error');
-    row.querySelector('.meta').textContent = meta;
-    if (u.state === 'sending') {
-      const left = queue.filter(q => q.state === 'waiting' || q.state === 'sending');
-      const total = left.reduce((s, q) => s + q.file.size - q.done, 0);
-      $('upSummary').textContent = left.length + ' left · ' + size(total);
-    }
+    else if (job.state === 'done') meta = (n > 1 ? n + ' files · ' : '') + size(job.total) + ' · sent in ' + dur(secs) + ', times kept';
+    else if (job.state === 'cancelled') meta = 'Cancelled after ' + job.index + ' of ' + n + ' files';
+    else meta = job.error + ' (' + job.index + ' of ' + n + ' done — Retry carries on from there)';
+    const m = row.querySelector('.meta');
+    m.textContent = meta;
+    m.style.whiteSpace = 'pre-line';
+    row.querySelector('.retry').classList.toggle('hidden', job.state !== 'failed');
+    if (job.state === 'sending') drawSummary();
+  }
+
+  function drawSummary() {
+    const left = jobs.filter(j => j.state === 'waiting' || j.state === 'sending');
+    const files = left.reduce((s, j) => s + j.items.length - j.index, 0);
+    const bytes = left.reduce((s, j) => s + j.total - j.sentBytes - j.cur, 0);
+    $('upSummary').textContent = left.length ? files + ' files left · ' + size(bytes) : 'all done';
   }
 
   window.addEventListener('beforeunload', e => {
-    if (queue.some(q => q.state === 'sending' || q.state === 'waiting')) { e.preventDefault(); e.returnValue = ''; }
+    if (jobs.some(j => j.state === 'sending' || j.state === 'waiting')) { e.preventDefault(); e.returnValue = ''; }
   });
 
-  // ---- picking and dropping
-  $('pick').addEventListener('change', e => { addFiles(e.target.files); e.target.value = ''; });
+  // ---- picking
+  $('btnFiles').onclick = () => $('pickFiles').click();
+  $('btnFolder').onclick = () => $('pickFolder').click();
+  $('pickFiles').addEventListener('change', e => { addLoose(e.target.files); e.target.value = ''; });
+  $('pickFolder').addEventListener('change', e => {
+    const items = [...e.target.files].map(f => ({ file: f, path: f.webkitRelativePath || f.name, mtime: f.lastModified || Date.now() }));
+    e.target.value = '';
+    if (!items.length) return alert('That folder is empty.');
+    addFolderItems(items);
+  });
+
+  // ---- drag and drop (files and whole folders)
   const drop = $('drop');
   ['dragenter', 'dragover'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.add('over'); }));
   ['dragleave', 'drop'].forEach(t => drop.addEventListener(t, e => { e.preventDefault(); drop.classList.remove('over'); }));
-  drop.addEventListener('drop', e => {
-    const files = [...(e.dataTransfer.files || [])].filter(f => f.size > 0 || f.type);
-    if (files.length) addFiles(files);
-  });
   document.addEventListener('dragover', e => e.preventDefault());
   document.addEventListener('drop', e => e.preventDefault());
 
-  // ---- what's on the phone
+  drop.addEventListener('drop', async e => {
+    const dt = e.dataTransfer;
+    // grab entries now — the drop data disappears once this handler awaits
+    const entries = [...(dt.items || [])].map(i => i.webkitGetAsEntry && i.webkitGetAsEntry()).filter(Boolean);
+    if (!entries.length) { addLoose(dt.files || []); return; }
+    const loose = [], folders = [];
+    $('drop').querySelector('b').textContent = 'Reading folders…';
+    try {
+      for (const en of entries) {
+        if (en.isFile) loose.push(await fileOf(en));
+        else if (en.isDirectory) await walk(en, folders);
+      }
+    } finally {
+      $('drop').querySelector('b').textContent = 'Drop files or folders here';
+    }
+    if (loose.length) addLoose(loose);
+    if (folders.length) addFolderItems(folders);
+    else if (!loose.length) alert('Nothing to send — the folder is empty.');
+  });
+
+  const fileOf = en => new Promise((res, rej) => en.file(res, rej));
+  async function walk(dirEntry, out) {
+    const reader = dirEntry.createReader();
+    for (;;) {
+      const batch = await new Promise((res, rej) => reader.readEntries(res, rej));   // up to 100 at a time
+      if (!batch.length) break;
+      for (const en of batch) {
+        if (en.isFile) {
+          const f = await fileOf(en);
+          out.push({ file: f, path: en.fullPath.replace(/^\/+/, ''), mtime: f.lastModified || Date.now() });
+        } else if (en.isDirectory) {
+          await walk(en, out);
+        }
+      }
+    }
+  }
+
+  // ================================================================ what's on the phone
+  const open = new Set();          // expanded folder ids
+  const inside = new Map();        // folder id -> { key, files }
   let lastSig = '';
+
   async function refresh() {
     let st;
     try {
@@ -281,50 +418,100 @@
     }
     $('who').innerHTML = '<span class="dot"></span>Connected to ' + esc(st.phone);
     $('free').textContent = size(st.free) + ' free';
+    $('zipAll').classList.toggle('hidden', st.files.length < 2);
 
-    // transfers the phone is doing (including other devices)
+    // what the phone is moving right now, except our own upload (shown on the left)
+    const mine = running && running.items[running.index];
+    const others = st.active.filter(a => !(a.upload && mine && a.name.endsWith(mine.file.name)));
     const mv = $('moving');
-    const others = st.active.filter(a => !(a.upload && busy && queue.some(q => q.state === 'sending' && q.file.name === a.name)));
     mv.style.display = others.length ? '' : 'none';
     mv.innerHTML = others.map(a => '<div class="row"><div class="main"><div class="name">' + (a.upload ? '↓ ' : '↑ ') + esc(a.name)
       + '</div><div class="bar"><i style="width:' + (a.size ? a.done / a.size * 100 : 0).toFixed(1) + '%"></i></div><div class="meta">'
-      + (a.upload ? 'Arriving · ' : 'Downloading · ') + size(a.done) + ' of ' + size(a.size) + ' · ' + size(a.speed) + '/s</div></div></div>').join('');
+      + (a.upload ? 'Arriving · ' : 'Downloading · ') + size(a.done) + ' of ' + size(a.size)
+      + (a.fileCount ? ' · ' + a.files + ' of ' + a.fileCount + ' files' : '') + ' · ' + size(a.speed) + '/s</div></div></div>').join('');
 
-    const sig = JSON.stringify(st.files);
+    const sig = JSON.stringify(st.files) + [...open].join();
     if (sig === lastSig) return;
     lastSig = sig;
+    drawShelf(st.files);
+  }
+
+  function drawShelf(files) {
     const box = $('files');
-    if (!st.files.length) {
-      box.innerHTML = '<div class="empty">Nothing here yet. Send files from this side, or put files on the shelf from the phone app.</div>';
+    if (!files.length) {
+      box.innerHTML = '<div class="empty">Nothing here yet. Send files or folders from this side, or share them from the phone app.</div>';
       return;
     }
     box.innerHTML = '';
-    for (const f of st.files) {
+    for (const f of files) {
+      const wrap = document.createElement('div');
       const row = document.createElement('div');
       row.className = 'row';
       const src = f.phone ? '<span class="tag">phone</span>' : '';
       const from = f.phone ? 'on the phone' : (f.from ? 'from ' + esc(f.from) : 'received');
-      row.innerHTML = '<div class="main"><div class="name">' + esc(f.name) + src + '</div><div class="meta">'
-        + size(f.size) + ' · ' + from + ' · ' + when(f.time) + '</div></div>';
+      let meta;
+      if (f.folder) {
+        meta = f.count + (f.count === 1 ? ' file' : ' files') + ' · ' + size(f.size) + ' · ' + from
+          + (f.count ? '<br>' + stamp(f.first) + '  →  ' + stamp(f.last) : '')
+          + '<br><button class="toggle">' + (open.has(f.id) ? '▾ Hide files' : '▸ Show files in order') + '</button>';
+      } else {
+        meta = size(f.size) + ' · ' + from + ' · modified ' + when(f.time);
+      }
+      row.innerHTML = '<div class="main"><div class="name">' + (f.folder ? '📁 ' : '') + esc(f.name) + src + '</div><div class="meta">' + meta + '</div></div>';
+
       const a = document.createElement('a');
       a.className = 'btn small';
-      a.textContent = 'Download';
-      a.href = '/api/file?dl=1&id=' + encodeURIComponent(f.id);
-      a.setAttribute('download', f.name);
+      a.textContent = f.folder ? 'Download ZIP' : 'Download';
+      a.href = f.folder ? '/api/zip?id=' + encodeURIComponent(f.id) : '/api/file?dl=1&id=' + encodeURIComponent(f.id);
+      a.setAttribute('download', f.folder ? f.name + '.zip' : f.name);
       row.appendChild(a);
+
       const x = document.createElement('button');
       x.className = 'x';
-      x.title = f.phone ? 'Take off the shelf (the file stays on the phone)' : 'Delete from the phone';
+      x.title = f.phone ? 'Take off the shelf (stays on the phone)' : 'Delete from the phone';
       x.textContent = '✕';
       x.onclick = async () => {
-        if (!f.phone && !confirm('Delete "' + f.name + '" from the phone?')) return;
+        const what = f.folder ? 'the folder "' + f.name + '" and its ' + f.count + ' files' : '"' + f.name + '"';
+        if (!f.phone && !confirm('Delete ' + what + ' from the phone?')) return;
         await fetch('/api/delete?id=' + encodeURIComponent(f.id), { method: 'POST' });
+        open.delete(f.id);
         lastSig = '';
         refresh();
       };
       row.appendChild(x);
-      box.appendChild(row);
+      wrap.appendChild(row);
+
+      if (f.folder) {
+        const tg = row.querySelector('.toggle');
+        tg.onclick = () => { open.has(f.id) ? open.delete(f.id) : open.add(f.id); lastSig = ''; refresh(); };
+        if (open.has(f.id)) {
+          const list = document.createElement('div');
+          list.className = 'inside';
+          list.innerHTML = '<div class="more">Loading…</div>';
+          wrap.appendChild(list);
+          fillFolder(f, list);
+        }
+      }
+      box.appendChild(wrap);
     }
+  }
+
+  async function fillFolder(f, el) {
+    const key = f.count + ':' + f.size;
+    let c = inside.get(f.id);
+    if (!c || c.key !== key) {
+      try {
+        const r = await fetch('/api/folder?id=' + encodeURIComponent(f.id), { cache: 'no-store' });
+        c = { key, files: (await r.json()).files };
+        inside.set(f.id, c);
+      } catch (e) { el.innerHTML = '<div class="more">Couldn\'t load the list.</div>'; return; }
+    }
+    const MAX = 400;
+    const shown = c.files.slice(0, MAX);
+    el.innerHTML = '<table>' + shown.map((x, i) => '<tr><td class="n">' + (i + 1) + '</td><td class="p" title="' + esc(x.path) + '">'
+      + esc(x.path) + '</td><td class="t">' + stamp(x.time) + '</td><td class="s">' + size(x.size)
+      + '</td><td class="a"><a href="/api/file?dl=1&id=' + encodeURIComponent(x.id) + '" download>↓</a></td></tr>').join('') + '</table>'
+      + (c.files.length > MAX ? '<div class="more">…and ' + (c.files.length - MAX) + ' more. Download the ZIP to get them all.</div>' : '');
   }
 
   refresh();

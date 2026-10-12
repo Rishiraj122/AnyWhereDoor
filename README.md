@@ -18,9 +18,18 @@ The phone running the hotspot is the **door**: AnyWhereDoor runs a small file se
 3. Connect the laptop (and any other device) to that hotspot.
 4. In Chrome or Edge on the laptop, type the address the app shows, e.g. `192.168.43.1:8080`.
 
-- **Laptop → phone:** drag files onto the page, or click **Choose files**. They upload one after another with progress, speed and time left, and are saved in `Download/AnyWhereDoor` on the phone.
-- **Phone → laptop:** in the app, tap **Put files from this phone on the shelf** (or use Share → AnyWhereDoor from the gallery or file manager). The files appear on the page with a **Download** button. Nothing is copied, so multi-GB files are instant to add.
+- **Laptop → phone:** drag files or whole folders onto the page, or click **Choose files** / **Choose folder**. They upload one after another with progress, speed and time left, and are saved in `Download/AnyWhereDoor` on the phone, folder structure included.
+- **Phone → laptop:** in the app, tap **Share files** or **Share a folder** (or use Share → AnyWhereDoor from the gallery or file manager). They appear on the page with a **Download** button, folders as **Download ZIP**. Nothing is copied, so multi-GB files are instant to add.
 - **Laptop → another device:** the other device joins the same hotspot, opens the same address and downloads what the laptop sent. The phone relays.
+
+### Time order is kept
+
+Every file keeps its original modified time end to end:
+
+- Uploads go **oldest first** (same time → natural name order, so `img2` before `img10`), and each file's modified time is sent with it and set on the phone. The phone also keeps its own record (`.awd-meta`) in case the storage ignores the time.
+- On the page, **Show files in order** lists a folder's files oldest first with their exact times.
+- Folders download as a **ZIP** whose entries are in that same order and stamped with each file's original time. Windows "Extract all", 7-Zip, macOS and `unzip` all restore those times.
+- A single file downloaded on its own gets the download date from the browser (browsers don't let a page set it), so use the folder ZIP — or **Download all as ZIP** — when the times matter.
 
 Downloads support resume (HTTP Range), so a dropped download can be resumed from the browser's download list.
 
@@ -51,10 +60,12 @@ API (port 8080, or the next free one):
 | Method | Path | |
 |---|---|---|
 | GET | `/` | the web page |
-| GET | `/api/state` | phone name, free space, files, live transfers |
-| PUT | `/api/upload?name=&from=` | raw file body (`curl -T file.zip "http://PHONE:8080/api/upload?name=file.zip"`) |
-| GET | `/api/file?id=&dl=1` | download (Range supported) |
-| POST | `/api/delete?id=` | delete a received file / unshare a phone file |
+| GET | `/api/state` | phone name, free space, files and folders, live transfers |
+| GET | `/api/folder?id=` | files in a folder, oldest first |
+| PUT | `/api/upload?path=&mtime=&batch=&from=` | raw file body; `path` may include folders, `mtime` in ms (`curl -T a.jpg "http://PHONE:8080/api/upload?path=Shots/a.jpg&mtime=1760000000000"`) |
+| GET | `/api/file?id=&dl=1` | one file (Range supported) |
+| GET | `/api/zip?id=` | a folder, or `id=all`, as a ZIP with original times, oldest first |
+| POST | `/api/delete?id=` | delete a received file/folder, or unshare a phone one |
 
 ## Build
 
