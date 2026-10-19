@@ -91,7 +91,9 @@ public class Shelf {
         public String partName(int k) {
             return String.format(Locale.ROOT, "%s_part%02dof%02d.zip", name, k + 1, parts);
         }
-    }; same time falls back to natural name order (img2 before img10). */
+    }
+
+    /** Oldest first; same time falls back to natural name order (img2 before img10). */
     public static final Comparator<Entry> BY_TIME = (a, b) -> {
         int c = Long.compare(a.time, b.time);
         return c != 0 ? c : natural(a.path, b.path);
