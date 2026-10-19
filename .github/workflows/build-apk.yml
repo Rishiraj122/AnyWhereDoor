@@ -24,7 +24,12 @@ jobs:
           gradle-version: '8.9'
 
       - name: Build signed APK
-        run: gradle --no-daemon :app:assembleRelease
+        run: |
+          set -o pipefail
+          gradle --no-daemon :app:assembleRelease 2>&1 | tee build.log || {
+            grep -E "error:|\.java:[0-9]+|FAILURE|What went wrong" -A2 build.log | head -40 | while IFS= read -r l; do echo "::error::$l"; done
+            exit 1
+          }
 
       - name: Name the APK
         run: cp app/build/outputs/apk/release/app-release.apk AnyWhereDoor-v1.0.${{ github.run_number }}.apk
