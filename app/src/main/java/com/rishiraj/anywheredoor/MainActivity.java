@@ -41,6 +41,7 @@ public class MainActivity extends Activity {
     private static final int REQ_PERMS = 11;
     private static final int REQ_TREE = 12;
     private static final int REQ_BATCH = 13;
+    private static final int REQ_BATCH_TREE = 14;
 
     private TextView status, address, otherAddresses, hint, free, folder, log, shelfEmpty, myName;
     private View dot, activeBox, sendsBox;
@@ -88,7 +89,11 @@ public class MainActivity extends Activity {
         findViewById(R.id.btnHotspot).setOnClickListener(v -> openHotspotSettings());
         findViewById(R.id.btnShare).setOnClickListener(v -> pickFiles());
         findViewById(R.id.btnShareFolder).setOnClickListener(v -> pickFolder());
-        findViewById(R.id.btnBatch).setOnClickListener(v -> pickForBatch());
+        findViewById(R.id.btnBatch).setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Send to the laptop in ZIPs")
+                .setItems(new String[]{"A whole folder (best for thousands of images)", "Pick images (up to ~2,000)"},
+                        (d, which) -> { if (which == 0) pickTreeForBatch(); else pickForBatch(); })
+                .show());
         address.setOnClickListener(v -> copy(address.getText().toString()));
 
         askPermissions();
@@ -172,8 +177,24 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void pickTreeForBatch() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            startActivityForResult(i, REQ_BATCH_TREE);
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, "No folder picker on this phone", Toast.LENGTH_LONG).show();
+        }
+    }
+
     /** Ask how many files go in each ZIP, then hand the batch to the door. */
     private void askBatch(List<Uri> uris) {
+        askBatch(uris.size() + (uris.size() == 1 ? " file" : " files"), n -> startBatch(uris, null, n));
+    }
+
+    private interface PerChosen { void go(int per); }
+
+    private void askBatch(String what, PerChosen then) {
         android.content.SharedPreferences prefs = getSharedPreferences("ui", MODE_PRIVATE);
         EditText per = new EditText(this);
         per.setInputType(InputType.TYPE_CLASS_NUMBER);
@@ -183,7 +204,7 @@ public class MainActivity extends Activity {
         box.setPadding(dp(22), dp(4), dp(22), 0);
         box.addView(per);
         new AlertDialog.Builder(this)
-                .setTitle("Send " + uris.size() + (uris.size() == 1 ? " file" : " files") + " in ZIPs")
+                .setTitle("Send " + what + " in ZIPs")
                 .setMessage("How many files in each ZIP? Oldest go first. Keep AnyWhereDoor open on the laptop — "
                         + "it saves the ZIPs one after another.")
                 .setView(box)
@@ -192,21 +213,22 @@ public class MainActivity extends Activity {
                     try { n = Integer.parseInt(per.getText().toString().trim()); } catch (Exception e) { n = 20; }
                     n = Math.max(1, Math.min(n, 10000));
                     prefs.edit().putInt("per", n).apply();
-                    startBatch(uris, n);
+                    then.go(n);
                 })
                 .setNegativeButton("Cancel", null)
                 .show();
     }
 
-    private void startBatch(List<Uri> uris, int per) {
+    private void startBatch(List<Uri> uris, Uri tree, int per) {
         HubService s = HubService.get();
         if (s == null) {
             if (!wantOpen) { wantOpen = true; HubService.start(this); }
-            handler.postDelayed(() -> startBatch(uris, per), 300);
+            handler.postDelayed(() -> startBatch(uris, tree, per), 300);
             return;
         }
+        if (tree != null) Toast.makeText(this, "Reading the folder…", Toast.LENGTH_SHORT).show();
         new Thread(() -> {
-            Shelf.Batch b = s.shelf.makeBatch(uris, per);
+            Shelf.Batch b = tree != null ? s.shelf.makeBatch(tree, per) : s.shelf.makeBatch(uris, per);
             runOnUiThread(() -> {
                 Toast.makeText(this, b == null ? "Couldn't read those files"
                         : b.entries.size() + " files → " + b.parts + (b.parts == 1 ? " ZIP" : " ZIPs")
@@ -256,9 +278,14 @@ public class MainActivity extends Activity {
             }).start();
             return;
         }
+        if (req == REQ_BATCH_TREE && res == RESULT_OK && data != null && data.getData() != null) {
+            Uri tree = data.getData();
+            askBatch("this folder", n -> startBatch(null, tree, n));
+            return;
+        }
         if (req == REQ_BATCH && res == RESULT_OK && data != null) {
             List<Uri> uris = urisOf(data);
-            for (Uri u : uris) {
+            if (uris.size() <= 200) for (Uri u : uris) {
                 try { getContentResolver().takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION); }
                 catch (Exception ignored) { }
             }

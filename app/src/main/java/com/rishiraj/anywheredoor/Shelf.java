@@ -680,9 +680,38 @@ public class Shelf {
             e.size = it.size;
             e.time = it.time;
             b.entries.add(e);
-            b.size += e.size;
         }
+        return finish(b, per);
+    }
+
+    /**
+     * A whole folder picked with the folder picker. This is the way to send thousands of
+     * images: Android can't hand an app more than a few thousand individually picked files,
+     * but one folder grant covers everything inside it, subfolders included.
+     */
+    public Batch makeBatch(Uri tree, int per) {
+        try { cr.takePersistableUriPermission(tree, Intent.FLAG_GRANT_READ_URI_PERMISSION); }
+        catch (Exception ignored) { }
+        Batch b = new Batch();
+        try {
+            Item t = new Item();
+            t.id = "x";
+            t.tree = tree;
+            t.treeRoot = DocumentsContract.getTreeDocumentId(tree);
+            walkTree(t, t.treeRoot, "", b.entries);          // paths like "sub/IMG_1.jpg"
+        } catch (Exception e) {
+            return null;
+        }
+        for (Entry e : b.entries) {
+            e.uri = DocumentsContract.buildDocumentUriUsingTree(tree, e.id.substring(2));
+            e.id = null;
+        }
+        return finish(b, per);
+    }
+
+    private Batch finish(Batch b, int per) {
         if (b.entries.isEmpty()) return null;
+        for (Entry e : b.entries) b.size += e.size;
         Collections.sort(b.entries, BY_TIME);
         // same name twice in one batch (e.g. from two albums) -> "a (1).jpg"
         Set<String> seen = new HashSet<>();
