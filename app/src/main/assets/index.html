@@ -123,6 +123,7 @@
         <input type="file" id="pickFiles" multiple class="hidden">
         <input type="file" id="pickFolder" webkitdirectory directory multiple class="hidden">
       </div>
+      <div class="me hidden" id="mobileFolder">Put picked files in a folder named <input id="folderName" maxlength="60" placeholder="optional"></div>
       <div class="me">Show me as <input id="me" maxlength="40"></div>
 
       <div id="upBox" class="hidden">
@@ -214,6 +215,12 @@
   function addLoose(files) {
     const items = [...files].map(f => ({ file: f, path: f.name, mtime: f.lastModified || Date.now() }));
     if (!items.length) return;
+    // on phones (no folder picking) the files can still land together in a named folder
+    const folder = mobile ? $('folderName').value.trim().replace(/[\\/:*?"<>|]/g, '_') : '';
+    if (folder) {
+      items.forEach(it => it.path = folder + '/' + it.file.name);
+      return addJob(folder, items, true);
+    }
     addJob(items.length === 1 ? items[0].path : items.length + ' files', items, false);
   }
 
@@ -351,6 +358,17 @@
   });
 
   // ---- picking
+  // Phone browsers (Chrome on Android, Safari on iPhone) can't pick folders: hide that button
+  // and offer "select all the files + give them a folder name" instead.
+  const mobile = /Android|iPhone|iPad|Mobile/i.test(navigator.userAgent);
+  if (mobile) {
+    $('btnFolder').classList.add('hidden');
+    $('mobileFolder').classList.remove('hidden');
+    $('drop').querySelector('b').textContent = 'Send files to the phone';
+    $('drop').querySelector('.sub').textContent = 'Phone browsers can\'t pick a whole folder. Open the folder in the picker, '
+      + 'select all its files (long-press one, then Select all), and type a folder name below to keep them together. '
+      + 'They go up oldest first with their original times.';
+  }
   $('btnFiles').onclick = () => $('pickFiles').click();
   $('btnFolder').onclick = () => $('pickFolder').click();
   $('pickFiles').addEventListener('change', e => { addLoose(e.target.files); e.target.value = ''; });
