@@ -27,6 +27,7 @@ import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 
@@ -64,9 +65,33 @@ public class Shelf {
         public String path;     // relative, starts with the folder's own name: "Photos/sub/a.jpg"
         public long size;
         public long time;
+        Uri uri;                // files picked on the phone (batches)
     }
 
-    /** Oldest first; same time falls back to natural name order (img2 before img10). */
+    /** Files picked on the phone and sent to the laptop as a run of ZIPs, oldest first. */
+    public static class Batch {
+        public String id, name;
+        public final List<Entry> entries = new ArrayList<>();
+        public int per, parts;
+        public long size;
+        public volatile int delivered;      // ZIPs the laptop has saved
+        public volatile String claimedBy;   // the browser picking them up
+        public volatile long touched;
+
+        public List<Entry> part(int k) {
+            return entries.subList(k * per, Math.min(entries.size(), (k + 1) * per));
+        }
+
+        public long partSize(int k) {
+            long n = 0;
+            for (Entry e : part(k)) n += e.size;
+            return n;
+        }
+
+        public String partName(int k) {
+            return String.format(Locale.ROOT, "%s_part%02dof%02d.zip", name, k + 1, parts);
+        }
+    }; same time falls back to natural name order (img2 before img10). */
     public static final Comparator<Entry> BY_TIME = (a, b) -> {
         int c = Long.compare(a.time, b.time);
         return c != 0 ? c : natural(a.path, b.path);
@@ -87,6 +112,7 @@ public class Shelf {
     private final Map<String, Uri> scanned = new HashMap<>();
     private final Map<String, String> batchRoots = new HashMap<>();
     private final Map<String, long[]> folderSums = new HashMap<>(); // name -> {count, size, first, last}
+    private final LinkedHashMap<String, Batch> batches = new LinkedHashMap<>();
     private long nextShareId = 1;
     private volatile int rev;
 
@@ -287,6 +313,11 @@ public class Shelf {
     }
 
     public InputStream open(Entry e) throws IOException {
+        if (e.uri != null) {
+            InputStream in = cr.openInputStream(e.uri);
+            if (in == null) throw new IOException("Can't open " + e.path);
+            return in;
+        }
         Item it = get(e.id);
         if (it == null) throw new IOException(e.path + " is gone");
         return open(it);
@@ -512,9 +543,11 @@ public class Shelf {
                 int ni = c.getColumnIndex(OpenableColumns.DISPLAY_NAME);
                 int si = c.getColumnIndex(OpenableColumns.SIZE);
                 int ti = c.getColumnIndex(DocumentsContract.Document.COLUMN_LAST_MODIFIED);
+                int di = c.getColumnIndex("date_modified");   // gallery uris: seconds
                 if (ni >= 0) name = c.getString(ni);
                 if (si >= 0 && !c.isNull(si)) size = c.getLong(si);
                 if (ti >= 0 && !c.isNull(ti)) time = c.getLong(ti);
+                else if (di >= 0 && !c.isNull(di)) time = c.getLong(di) * 1000;
             }
         } catch (Exception e) {
             return null;
@@ -630,6 +663,49 @@ public class Shelf {
         app.getSharedPreferences(PREFS, Context.MODE_PRIVATE).edit()
                 .putStringSet(KEY_SHARED, f).putStringSet(KEY_TREES, t).apply();
     }
+
+    // ================================================================ batches (phone -> laptop in ZIPs)
+
+    /** Runs off the main thread: reads names, sizes and times of the picked files. */
+    public Batch makeBatch(List<Uri> uris, int per) {
+        Batch b = new Batch();
+        for (Uri u : uris) {
+            Item it = describe(u);
+            if (it == null) continue;
+            Entry e = new Entry();
+            e.uri = u;
+            e.path = it.name;
+            e.size = it.size;
+            e.time = it.time;
+            b.entries.add(e);
+            b.size += e.size;
+        }
+        if (b.entries.isEmpty()) return null;
+        Collections.sort(b.entries, BY_TIME);
+        // same name twice in one batch (e.g. from two albums) -> "a (1).jpg"
+        Set<String> seen = new HashSet<>();
+        for (Entry e : b.entries) {
+            String n = e.path, base = n, ext = "";
+            int dot = n.lastIndexOf('.');
+            if (dot > 0) { base = n.substring(0, dot); ext = n.substring(dot); }
+            for (int i = 1; !seen.add(n.toLowerCase(Locale.ROOT)); i++) n = base + " (" + i + ")" + ext;
+            e.path = n;
+        }
+        b.per = Math.max(1, per);
+        b.parts = (b.entries.size() + b.per - 1) / b.per;
+        b.name = "AnyWhereDoor_" + new java.text.SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.ROOT).format(new java.util.Date());
+        synchronized (this) {
+            b.id = "b:" + (nextShareId++);
+            batches.put(b.id, b);
+            rev++;
+        }
+        return b;
+    }
+
+    public synchronized List<Batch> batches() { return new ArrayList<>(batches.values()); }
+    public synchronized Batch batch(String id) { return id == null ? null : batches.get(id); }
+    public synchronized void dropBatch(String id) { batches.remove(id); rev++; }
+    public synchronized void touch() { rev++; }
 
     // ================================================================ natural sort
 

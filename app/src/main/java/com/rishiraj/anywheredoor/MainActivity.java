@@ -15,12 +15,15 @@ import android.os.Bundle;
 import android.os.Handler;
 import android.os.Looper;
 import android.provider.Settings;
+import android.text.InputType;
 import android.text.TextUtils;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.widget.Button;
+import android.widget.EditText;
+import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ProgressBar;
 import android.widget.TextView;
@@ -37,10 +40,11 @@ public class MainActivity extends Activity {
     private static final int REQ_PICK = 10;
     private static final int REQ_PERMS = 11;
     private static final int REQ_TREE = 12;
+    private static final int REQ_BATCH = 13;
 
     private TextView status, address, otherAddresses, hint, free, folder, log, shelfEmpty, myName;
-    private View dot, activeBox;
-    private LinearLayout activeList, shelfList;
+    private View dot, activeBox, sendsBox;
+    private LinearLayout activeList, shelfList, sendsList;
     private Button btnDoor;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
@@ -73,6 +77,8 @@ public class MainActivity extends Activity {
         activeList = findViewById(R.id.active);
         shelfList = findViewById(R.id.shelf);
         btnDoor = findViewById(R.id.btnDoor);
+        sendsBox = findViewById(R.id.sendsBox);
+        sendsList = findViewById(R.id.sends);
 
         btnDoor.setOnClickListener(v -> {
             if (HubService.get() != null) { wantOpen = false; HubService.stop(this); }
@@ -82,6 +88,7 @@ public class MainActivity extends Activity {
         findViewById(R.id.btnHotspot).setOnClickListener(v -> openHotspotSettings());
         findViewById(R.id.btnShare).setOnClickListener(v -> pickFiles());
         findViewById(R.id.btnShareFolder).setOnClickListener(v -> pickFolder());
+        findViewById(R.id.btnBatch).setOnClickListener(v -> pickForBatch());
         address.setOnClickListener(v -> copy(address.getText().toString()));
 
         askPermissions();
@@ -150,6 +157,76 @@ public class MainActivity extends Activity {
         }
     }
 
+    private void pickForBatch() {
+        Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT)
+                .addCategory(Intent.CATEGORY_OPENABLE)
+                .setType("image/*")
+                .putExtra(Intent.EXTRA_MIME_TYPES, new String[]{"image/*", "video/*"})
+                .putExtra(Intent.EXTRA_ALLOW_MULTIPLE, true)
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
+        try {
+            startActivityForResult(i, REQ_BATCH);
+            Toast.makeText(this, "Long-press to select several", Toast.LENGTH_SHORT).show();
+        } catch (ActivityNotFoundException e) {
+            Toast.makeText(this, "No picker on this phone", Toast.LENGTH_LONG).show();
+        }
+    }
+
+    /** Ask how many files go in each ZIP, then hand the batch to the door. */
+    private void askBatch(List<Uri> uris) {
+        android.content.SharedPreferences prefs = getSharedPreferences("ui", MODE_PRIVATE);
+        EditText per = new EditText(this);
+        per.setInputType(InputType.TYPE_CLASS_NUMBER);
+        per.setText(String.valueOf(prefs.getInt("per", 20)));
+        per.setSelectAllOnFocus(true);
+        FrameLayout box = new FrameLayout(this);
+        box.setPadding(dp(22), dp(4), dp(22), 0);
+        box.addView(per);
+        new AlertDialog.Builder(this)
+                .setTitle("Send " + uris.size() + (uris.size() == 1 ? " file" : " files") + " in ZIPs")
+                .setMessage("How many files in each ZIP? Oldest go first. Keep AnyWhereDoor open on the laptop — "
+                        + "it saves the ZIPs one after another.")
+                .setView(box)
+                .setPositiveButton("Send", (d, w) -> {
+                    int n;
+                    try { n = Integer.parseInt(per.getText().toString().trim()); } catch (Exception e) { n = 20; }
+                    n = Math.max(1, Math.min(n, 10000));
+                    prefs.edit().putInt("per", n).apply();
+                    startBatch(uris, n);
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
+    }
+
+    private void startBatch(List<Uri> uris, int per) {
+        HubService s = HubService.get();
+        if (s == null) {
+            if (!wantOpen) { wantOpen = true; HubService.start(this); }
+            handler.postDelayed(() -> startBatch(uris, per), 300);
+            return;
+        }
+        new Thread(() -> {
+            Shelf.Batch b = s.shelf.makeBatch(uris, per);
+            runOnUiThread(() -> {
+                Toast.makeText(this, b == null ? "Couldn't read those files"
+                        : b.entries.size() + " files → " + b.parts + (b.parts == 1 ? " ZIP" : " ZIPs")
+                        + ". Open the address on the laptop to receive them.", Toast.LENGTH_LONG).show();
+                refresh();
+            });
+        }).start();
+    }
+
+    private static List<Uri> urisOf(Intent data) {
+        List<Uri> uris = new ArrayList<>();
+        if (data.getClipData() != null) {
+            ClipData c = data.getClipData();
+            for (int i = 0; i < c.getItemCount(); i++) uris.add(c.getItemAt(i).getUri());
+        } else if (data.getData() != null) {
+            uris.add(data.getData());
+        }
+        return uris;
+    }
+
     private void pickFolder() {
         Intent i = new Intent(Intent.ACTION_OPEN_DOCUMENT_TREE)
                 .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION | Intent.FLAG_GRANT_PERSISTABLE_URI_PERMISSION);
@@ -179,15 +256,17 @@ public class MainActivity extends Activity {
             }).start();
             return;
         }
-        if (req != REQ_PICK || res != RESULT_OK || data == null) return;
-        List<Uri> uris = new ArrayList<>();
-        if (data.getClipData() != null) {
-            ClipData c = data.getClipData();
-            for (int i = 0; i < c.getItemCount(); i++) uris.add(c.getItemAt(i).getUri());
-        } else if (data.getData() != null) {
-            uris.add(data.getData());
+        if (req == REQ_BATCH && res == RESULT_OK && data != null) {
+            List<Uri> uris = urisOf(data);
+            for (Uri u : uris) {
+                try { getContentResolver().takePersistableUriPermission(u, Intent.FLAG_GRANT_READ_URI_PERMISSION); }
+                catch (Exception ignored) { }
+            }
+            if (!uris.isEmpty()) askBatch(uris);
+            return;
         }
-        addToShelf(uris, true);
+        if (req != REQ_PICK || res != RESULT_OK || data == null) return;
+        addToShelf(urisOf(data), true);
     }
 
     /** Files shared into the app from the gallery, file manager, etc. */
@@ -203,8 +282,18 @@ public class MainActivity extends Activity {
         }
         intent.setAction(null);
         if (uris.isEmpty()) return;
-        pendingShare.addAll(uris);
-        flushPending();
+        if (uris.size() == 1) {
+            pendingShare.addAll(uris);
+            flushPending();
+            return;
+        }
+        new AlertDialog.Builder(this)
+                .setTitle(uris.size() + " files")
+                .setItems(new String[]{"Send to the laptop in ZIPs", "Put on the shelf"}, (d, which) -> {
+                    if (which == 0) askBatch(uris);
+                    else { pendingShare.addAll(uris); flushPending(); }
+                })
+                .show();
     }
 
     private void flushPending() {
@@ -251,6 +340,7 @@ public class MainActivity extends Activity {
             otherAddresses.setVisibility(View.GONE);
             hint.setText("Open the door, then connect your laptop or other device to this phone's hotspot.");
             activeBox.setVisibility(View.GONE);
+            sendsBox.setVisibility(View.GONE);
             renderShelf(new ArrayList<>(), null);
             log.setText("—");
             return;
@@ -294,6 +384,7 @@ public class MainActivity extends Activity {
         }
 
         renderActive(s.http.active);
+        renderSends(s);
         renderShelf(s.shelf.list(), s);
         free.setText(size(s.shelf.freeSpace()) + " free");
         folder.setText("Received files are saved in " + s.shelf.dirLabel());
@@ -333,6 +424,45 @@ public class MainActivity extends Activity {
                     + (a.upload ? " · from " + a.who : " · to " + a.who);
             row.addView(text(meta, 12, R.color.muted, false));
             activeList.addView(row);
+        }
+    }
+
+    private void renderSends(HubService s) {
+        List<Shelf.Batch> list = s.shelf.batches();
+        sendsBox.setVisibility(list.isEmpty() ? View.GONE : View.VISIBLE);
+        sendsList.removeAllViews();
+        boolean first = true;
+        for (Shelf.Batch b : list) {
+            if (!first) sendsList.addView(divider());
+            first = false;
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            row.setGravity(Gravity.CENTER_VERTICAL);
+            row.setPadding(dp(14), dp(12), dp(4), dp(12));
+
+            LinearLayout col = new LinearLayout(this);
+            col.setOrientation(LinearLayout.VERTICAL);
+            col.addView(text(b.entries.size() + " files · " + size(b.size), 15, R.color.text, true));
+            ProgressBar pb = new ProgressBar(this, null, android.R.attr.progressBarStyleHorizontal);
+            pb.setProgressDrawable(getDrawable(R.drawable.progress));
+            pb.setMax(b.parts);
+            pb.setProgress(b.delivered);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(6));
+            lp.topMargin = dp(8);
+            lp.bottomMargin = dp(6);
+            col.addView(pb, lp);
+            String meta;
+            if (b.delivered >= b.parts) meta = "All " + b.parts + " ZIPs saved on " + b.claimedBy + " ✓";
+            else if (b.claimedBy == null) meta = b.parts + " ZIPs of " + b.per + " · waiting for the laptop to open the page";
+            else meta = b.delivered + " of " + b.parts + " ZIPs saved on " + b.claimedBy;
+            col.addView(text(meta, 12, R.color.muted, false));
+            row.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
+
+            TextView x = text("✕", 18, R.color.muted, false);
+            x.setPadding(dp(14), dp(8), dp(14), dp(8));
+            x.setOnClickListener(v -> { s.shelf.dropBatch(b.id); refresh(); });
+            row.addView(x);
+            sendsList.addView(row);
         }
     }
 

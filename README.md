@@ -20,6 +20,7 @@ The phone running the hotspot is the **door**: AnyWhereDoor runs a small file se
 
 - **Laptop → phone:** drag files or whole folders onto the page, or click **Choose files** / **Choose folder**. They upload one after another with progress, speed and time left, and are saved in `Download/AnyWhereDoor` on the phone, folder structure included.
 - **Phone → laptop:** in the app, tap **Share files** or **Share a folder** (or use Share → AnyWhereDoor from the gallery or file manager). They appear on the page with a **Download** button, folders as **Download ZIP**. Nothing is copied, so multi-GB files are instant to add.
+- **Phone → laptop in ZIP batches:** tap **Send images to the laptop in ZIPs** (or select several photos in the gallery → Share → AnyWhereDoor → *Send to the laptop in ZIPs*) and choose how many files go in each ZIP. With the page open on the laptop, it saves `…_part01ofNN.zip`, then part 02, and so on into Downloads, oldest files first, each with its original time. A part that fails is retried on its own; nothing already saved is sent again.
 - **Laptop → another device:** the other device joins the same hotspot, opens the same address and downloads what the laptop sent. The phone relays.
 
 ### Time order is kept
@@ -65,6 +66,8 @@ API (port 8080, or the next free one):
 | PUT | `/api/upload?path=&mtime=&batch=&from=` | raw file body; `path` may include folders, `mtime` in ms (`curl -T a.jpg "http://PHONE:8080/api/upload?path=Shots/a.jpg&mtime=1760000000000"`) |
 | GET | `/api/file?id=&dl=1` | one file (Range supported) |
 | GET | `/api/zip?id=` | a folder, or `id=all`, as a ZIP with original times, oldest first |
+| GET | `/api/zip?id=b:N&part=k` | part k of a batch picked on the phone |
+| POST | `/api/claim?id=b:N`, `/api/sent?id=b:N&part=k` | the page picking up a batch / confirming a saved part |
 | POST | `/api/delete?id=` | delete a received file/folder, or unshare a phone one |
 
 ## Build

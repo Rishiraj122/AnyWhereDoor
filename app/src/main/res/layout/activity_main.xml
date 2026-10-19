@@ -172,11 +172,44 @@
             android:orientation="vertical" />
     </LinearLayout>
 
+    <!-- Send in ZIP batches -->
+    <Button
+        android:id="@+id/btnBatch"
+        android:layout_width="match_parent"
+        android:layout_height="54dp"
+        android:layout_marginTop="16dp"
+        android:background="@drawable/btn_primary"
+        android:stateListAnimator="@null"
+        android:text="Send images to the laptop in ZIPs"
+        android:textAllCaps="false"
+        android:textColor="#FFFFFF"
+        android:textSize="15sp"
+        android:textStyle="bold" />
+
+    <LinearLayout
+        android:id="@+id/sendsBox"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:visibility="gone">
+
+        <TextView
+            style="@style/Section"
+            android:text="SENDING IN ZIPS" />
+
+        <LinearLayout
+            android:id="@+id/sends"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:background="@drawable/card"
+            android:orientation="vertical" />
+    </LinearLayout>
+
     <!-- Share -->
     <LinearLayout
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_marginTop="16dp"
+        android:layout_marginTop="12dp"
         android:orientation="horizontal">
 
         <Button

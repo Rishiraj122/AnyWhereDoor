@@ -46,6 +46,9 @@ import java.util.zip.ZipOutputStream;
  *   GET  /api/zip?id=                      a folder (or id=all) as a ZIP, oldest file first,
  *                                          every entry stamped with its original time
  *   POST /api/delete?id=                   delete a received file/folder, or unshare a phone one
+ *   GET  /api/zip?id=b:N&part=k            part k of a batch picked on the phone
+ *   POST /api/claim?id=b:N                 a browser offers to pick up a batch (first one wins)
+ *   POST /api/sent?id=b:N&part=k           that browser saved part k
  */
 public class Http {
 
@@ -208,7 +211,7 @@ public class Http {
                 if (m.equals("GET")) { sendBytes(out, 200, "text/html; charset=utf-8", page(), head); return; }
                 break;
             case "/api/state":
-                if (m.equals("GET")) { sendJson(out, 200, state()); return; }
+                if (m.equals("GET")) { sendJson(out, 200, state(r.client)); return; }
                 break;
             case "/api/folder":
                 if (m.equals("GET")) { sendJson(out, 200, folder(r.q("id"))); return; }
@@ -221,6 +224,22 @@ public class Http {
                 break;
             case "/api/zip":
                 if (m.equals("GET")) { zip(r, out, head); return; }
+                break;
+            case "/api/claim":
+                if (m.equals("POST")) { claim(r, out); return; }
+                break;
+            case "/api/sent":
+                if (m.equals("POST")) {
+                    Shelf.Batch b = shelf.batch(r.q("id"));
+                    int k = -1;
+                    try { k = Integer.parseInt(r.q("part")); } catch (Exception ignored) { }
+                    if (b == null || k < 0 || k >= b.parts) { sendJson(out, 404, "{\"ok\":false}"); return; }
+                    b.delivered = Math.max(b.delivered, k + 1);
+                    b.touched = System.currentTimeMillis();
+                    shelf.touch();
+                    sendJson(out, 200, "{\"ok\":true}");
+                    return;
+                }
                 break;
             case "/api/delete":
                 if (m.equals("POST")) {
@@ -397,14 +416,24 @@ public class Http {
     private void zip(Req r, OutputStream out, boolean head) throws IOException {
         String id = r.q("id");
         String zipName;
-        if ("all".equals(id)) {
+        List<Shelf.Entry> entries;
+        if (id != null && id.startsWith("b:")) {
+            Shelf.Batch b = shelf.batch(id);
+            int k = -1;
+            try { k = Integer.parseInt(r.q("part")); } catch (Exception ignored) { }
+            if (b == null || k < 0 || k >= b.parts) { sendJson(out, 404, "{\"error\":\"That batch was cancelled on the phone\"}"); return; }
+            b.touched = System.currentTimeMillis();
+            zipName = b.partName(k);
+            entries = b.part(k);
+        } else if ("all".equals(id)) {
             zipName = "AnyWhereDoor-" + new SimpleDateFormat("yyyy-MM-dd_HHmm", Locale.ROOT).format(new Date()) + ".zip";
+            entries = shelf.entries(id);
         } else {
             Shelf.Item it = shelf.get(id);
             if (it == null || !it.folder) { sendJson(out, 404, "{\"error\":\"That folder is no longer here\"}"); return; }
             zipName = it.name + ".zip";
+            entries = shelf.entries(id);
         }
-        List<Shelf.Entry> entries = shelf.entries(id);
         long total = 0;
         for (Shelf.Entry e : entries) total += e.size;
 
@@ -455,7 +484,25 @@ public class Http {
 
     // ---------------------------------------------------------------- JSON
 
-    private String state() {
+    /** First browser to ask gets the batch; another may take over if that one went quiet for 30 s. */
+    private void claim(Req r, OutputStream out) throws IOException {
+        Shelf.Batch b = shelf.batch(r.q("id"));
+        boolean ok = false;
+        if (b != null) {
+            synchronized (b) {
+                long now = System.currentTimeMillis();
+                if (b.claimedBy == null || b.claimedBy.equals(r.client) || now - b.touched > 30_000) {
+                    b.claimedBy = r.client;
+                    b.touched = now;
+                    ok = true;
+                }
+            }
+            shelf.touch();
+        }
+        sendJson(out, ok ? 200 : 409, "{\"ok\":" + ok + "}");
+    }
+
+    private String state(String client) {
         StringBuilder b = new StringBuilder(4096);
         b.append("{\"phone\":").append(js(phoneName));
         b.append(",\"free\":").append(shelf.freeSpace());
@@ -478,6 +525,23 @@ public class Http {
                         .append(",\"last\":").append(it.last);
             }
             b.append('}');
+        }
+        b.append("],\"sends\":[");
+        first = true;
+        for (Shelf.Batch sb : shelf.batches()) {
+            if (!first) b.append(',');
+            first = false;
+            b.append("{\"id\":").append(js(sb.id))
+                    .append(",\"name\":").append(js(sb.name))
+                    .append(",\"files\":").append(sb.entries.size())
+                    .append(",\"size\":").append(sb.size)
+                    .append(",\"parts\":").append(sb.parts)
+                    .append(",\"delivered\":").append(sb.delivered)
+                    .append(",\"claimed\":").append(sb.claimedBy != null)
+                    .append(",\"mine\":").append(client.equals(sb.claimedBy))
+                    .append(",\"partSizes\":[");
+            for (int k = 0; k < sb.parts; k++) b.append(k > 0 ? "," : "").append(sb.partSize(k));
+            b.append("]}");
         }
         b.append("],\"active\":[");
         first = true;
