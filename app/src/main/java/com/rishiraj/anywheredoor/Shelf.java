@@ -738,6 +738,46 @@ public class Shelf {
     public synchronized void dropBatch(String id) { batches.remove(id); rev++; }
     public synchronized void touch() { rev++; }
 
+    // ================================================================ clean cache
+
+    /**
+     * Frees what nobody needs any more: half-finished uploads left behind by dropped
+     * connections (".name.part" untouched for a minute), ZIP batches that are fully saved,
+     * and the app's own cache folders. Received files are never touched.
+     */
+    public synchronized long clean() {
+        long[] freed = {0};
+        long cutoff = System.currentTimeMillis() - 60_000;     // live uploads write every moment
+        cleanParts(dir, cutoff, freed);
+        batches.values().removeIf(b -> b.delivered >= b.parts);
+        wipe(app.getCacheDir(), freed);
+        wipe(app.getExternalCacheDir(), freed);
+        rev++;
+        return freed[0];
+    }
+
+    private static void cleanParts(File d, long cutoff, long[] freed) {
+        File[] fs = d.listFiles();
+        if (fs == null) return;
+        for (File f : fs) {
+            if (f.isDirectory()) cleanParts(f, cutoff, freed);
+            else if (f.getName().startsWith(".") && f.getName().endsWith(".part") && f.lastModified() < cutoff) {
+                long n = f.length();
+                if (f.delete()) freed[0] += n;
+            }
+        }
+    }
+
+    private static void wipe(File d, long[] freed) {
+        File[] fs = d == null ? null : d.listFiles();
+        if (fs == null) return;
+        for (File f : fs) {
+            if (f.isDirectory()) wipe(f, freed);
+            long n = f.isFile() ? f.length() : 0;
+            if (f.delete()) freed[0] += n;
+        }
+    }
+
     // ================================================================ natural sort
 
     static int natural(String a, String b) {

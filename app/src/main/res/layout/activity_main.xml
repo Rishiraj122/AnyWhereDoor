@@ -238,6 +238,18 @@
             android:textSize="15sp" />
     </LinearLayout>
 
+    <Button
+        android:id="@+id/btnClean"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/btn_ghost"
+        android:stateListAnimator="@null"
+        android:text="Clean cache on all devices"
+        android:textAllCaps="false"
+        android:textColor="@color/text"
+        android:textSize="14sp" />
+
     <!-- Shelf -->
     <LinearLayout
         android:layout_width="match_parent"

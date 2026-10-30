@@ -21,6 +21,8 @@ The phone running the hotspot is the **door**: AnyWhereDoor runs a small file se
 - **Laptop → phone:** drag files or whole folders onto the page, or click **Choose files** / **Choose folder**. They upload one after another with progress, speed and time left, and are saved in `Download/AnyWhereDoor` on the phone, folder structure included.
 - **Phone → laptop:** in the app, tap **Share files** or **Share a folder** (or use Share → AnyWhereDoor from the gallery or file manager). They appear on the page with a **Download** button, folders as **Download ZIP**. Nothing is copied, so multi-GB files are instant to add.
 - **Phone → laptop in ZIP batches:** tap **Send images to the laptop in ZIPs**, pick **A whole folder** (any number of files — use this for thousands) or **Pick images** (Android caps a hand-picked selection at a few thousand), or select several photos in the gallery → Share → AnyWhereDoor → *Send to the laptop in ZIPs*) and choose how many files go in each ZIP. With the page open on the laptop, it saves `…_part01ofNN.zip`, then part 02, and so on into Downloads, oldest files first, each with its original time. A part that fails is retried on its own; nothing already saved is sent again.
+- **Parallel uploads:** the **Parallel files** slider under the drop area (1–8, default 3) sets how many files go up at once. You can change it mid-transfer. It speeds up lots of small files; a single big file won't get faster. If some files fail, **Retry** resends only those.
+- **Clean cache on all devices:** the button at the bottom of the page (or in the app). The phone deletes half-finished uploads left by dropped connections, fully saved ZIP batches and its own cache folder; every device with the page open clears its finished-upload list and stored page data. Received files are never deleted.
 - **Laptop → another device:** the other device joins the same hotspot, opens the same address and downloads what the laptop sent. The phone relays.
 
 ### Time order is kept
@@ -68,6 +70,7 @@ API (port 8080, or the next free one):
 | GET | `/api/zip?id=` | a folder, or `id=all`, as a ZIP with original times, oldest first |
 | GET | `/api/zip?id=b:N&part=k` | part k of a batch picked on the phone |
 | POST | `/api/claim?id=b:N`, `/api/sent?id=b:N&part=k` | the page picking up a batch / confirming a saved part |
+| POST | `/api/clean` | clean the phone's cache and signal every open page to clean its own |
 | POST | `/api/delete?id=` | delete a received file/folder, or unshare a phone one |
 
 ## Build

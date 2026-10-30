@@ -87,6 +87,12 @@
   .inside a:hover { text-decoration: underline; }
   .inside .more { padding: 10px; color: var(--muted); font-size: 13px; }
   .note { margin-top: 10px; color: var(--muted); font-size: 12px; }
+  .par { display: flex; align-items: center; gap: 10px; margin-top: 10px; font-size: 13px; color: var(--muted); }
+  .par input { flex: 1; max-width: 200px; accent-color: var(--door); }
+  .par b { color: var(--text); min-width: 14px; text-align: center; font-variant-numeric: tabular-nums; }
+  .toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--card); border: 1px solid var(--line);
+    padding: 10px 16px; border-radius: 12px; font-size: 14px; display: none; z-index: 9; }
+  .toast.show { display: block; }
   footer { margin-top: 28px; color: var(--muted); font-size: 12px; text-align: center; }
 </style>
 </head>
@@ -125,6 +131,9 @@
       </div>
       <div class="me hidden" id="mobileFolder">Put picked files in a folder named <input id="folderName" maxlength="60" placeholder="optional"></div>
       <div class="me">Show me as <input id="me" maxlength="40"></div>
+      <div class="par" title="How many files go up at the same time. More helps with lots of small files; one big file won't go faster.">
+        Parallel files <input type="range" id="par" min="1" max="8" step="1"> <b id="parVal"></b>
+      </div>
 
       <div id="upBox" class="hidden">
         <p class="label" style="margin-top:18px">UPLOADS <span id="upSummary"></span></p>
@@ -148,7 +157,10 @@
     </section>
   </div>
 
-  <footer>Everything moves over the hotspot's Wi-Fi. Mobile data isn't used.</footer>
+  <footer>Everything moves over the hotspot's Wi-Fi. Mobile data isn't used.
+    <div style="margin-top:12px"><button class="btn ghost small" id="btnClean">Clean cache on all devices</button></div>
+  </footer>
+  <div class="toast" id="toast"></div>
 </div>
 
 <script>
@@ -191,20 +203,33 @@
   $('me').value = me || guess();
   $('me').addEventListener('change', () => { try { localStorage.setItem('awd-me', $('me').value.trim()); } catch (e) {} });
 
+  // ---- how many files go up at once (1-8)
+  let par = 3;
+  try { par = +localStorage.getItem('awd-par') || 3; } catch (e) {}
+  $('par').value = par;
+  $('parVal').textContent = par;
+  $('par').addEventListener('input', () => {
+    par = +$('par').value;
+    $('parVal').textContent = par;
+    try { localStorage.setItem('awd-par', par); } catch (e) {}
+    if (running && running.kick) running.kick();          // start more right away if raised
+  });
+
   // ================================================================ uploads
-  // A job is one folder, or one batch of loose files. Jobs run one after another,
-  // and inside a job files go up one at a time, oldest first.
+  // A job is one folder, or one batch of loose files. Jobs run one after another.
+  // Inside a job up to `par` files go up at once, started oldest first.
   const jobs = [];
   let running = null, nextId = 1;
 
   function addJob(label, items, folder) {
     items.sort(byTime);
+    items.forEach(it => { it.st = 'todo'; it.cur = 0; it.err = ''; it.xhr = null; });
     const job = {
       id: nextId++, label, items, folder,
       total: items.reduce((s, it) => s + it.file.size, 0),
-      sentBytes: 0, cur: 0, index: 0, state: 'waiting', error: '',
+      sentBytes: 0, done: 0, state: 'waiting', error: '',
       batch: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
-      t0: 0, t1: 0, xhr: null, cancelled: false
+      t0: 0, t1: 0, kick: null, cancelled: false
     };
     jobs.push(job);
     $('upBox').classList.remove('hidden');
@@ -252,38 +277,63 @@
     });
   }
 
-  async function runJob(job) {
-    while (job.index < job.items.length) {
-      if (job.cancelled) { job.state = 'cancelled'; return; }
-      const it = job.items[job.index];
-      let tries = 0, res;
-      for (;;) {
-        res = await sendOne(job, it);
-        if (res.ok || res.aborted || ++tries >= 3) break;
-        await new Promise(r => setTimeout(r, 1500));       // brief wait, then retry this file
-      }
-      if (res.aborted) { job.state = 'cancelled'; return; }
-      if (!res.ok) { job.state = 'failed'; job.error = 'Stopped at ' + it.path + ' — ' + res.error; return; }
-      job.sentBytes += it.file.size;
-      job.cur = 0;
-      job.index++;
-      drawJob(job);
+  function runJob(job) {
+    return new Promise(finish => {
+      job.cancelled = false;
+      job.items.forEach(it => { if (it.st !== 'done') { it.st = 'todo'; it.cur = 0; it.err = ''; } });
+      let live = 0;
+      job.kick = () => {
+        while (!job.cancelled && live < par) {
+          const it = job.items.find(x => x.st === 'todo');
+          if (!it) break;
+          live++;
+          it.st = 'sending';
+          sendWithRetry(job, it).then(res => {
+            live--;
+            it.cur = 0;
+            it.xhr = null;
+            if (res.ok) { it.st = 'done'; job.sentBytes += it.file.size; job.done++; }
+            else if (res.aborted || job.cancelled) it.st = 'todo';
+            else { it.st = 'fail'; it.err = res.error; }
+            drawJob(job);
+            job.kick();
+          });
+        }
+        if (live) return;
+        job.kick = null;
+        const failed = job.items.filter(x => x.st === 'fail');
+        if (job.cancelled) job.state = 'cancelled';
+        else if (failed.length) {
+          job.state = 'failed';
+          job.error = failed.length + (failed.length === 1 ? ' file' : ' files') + ' failed, e.g. ' + failed[0].path + ' — ' + failed[0].err;
+        } else job.state = 'done';
+        finish();
+      };
+      job.kick();
+    });
+  }
+
+  async function sendWithRetry(job, it) {
+    let res;
+    for (let tries = 0; ; ) {
+      res = await sendOne(job, it);
+      if (res.ok || res.aborted || job.cancelled || ++tries >= 3) return res;
+      await new Promise(r => setTimeout(r, 1500));         // brief wait, then retry this file
     }
-    job.state = 'done';
   }
 
   function sendOne(job, it) {
     return new Promise(resolve => {
       const xhr = new XMLHttpRequest();
-      job.xhr = xhr;
-      job.cur = 0;
+      it.xhr = xhr;
+      it.cur = 0;
       const from = $('me').value.trim() || guess();
       const qs = 'path=' + encodeURIComponent(job.folder ? it.path : it.file.name)
         + '&mtime=' + encodeURIComponent(Math.round(it.mtime))
         + '&batch=' + encodeURIComponent(job.batch)
         + '&from=' + encodeURIComponent(from);
       xhr.open('PUT', '/api/upload?' + qs);
-      xhr.upload.onprogress = e => { job.cur = e.loaded; drawJob(job); };
+      xhr.upload.onprogress = e => { it.cur = e.loaded; drawJob(job); };
       xhr.onload = () => {
         if (xhr.status === 200) return resolve({ ok: true });
         let err = 'Phone said ' + xhr.status;
@@ -308,7 +358,7 @@
       row.querySelector('.name').textContent = (job.folder ? '📁 ' : '') + job.label;
       row.querySelector('.retry').onclick = () => { job.state = 'waiting'; job.error = ''; drawJobs(); pump(); };
       row.querySelector('.x').onclick = () => {
-        if (job.state === 'sending') { job.cancelled = true; if (job.xhr) job.xhr.abort(); }
+        if (job.state === 'sending') { job.cancelled = true; job.items.forEach(it => it.xhr && it.xhr.abort()); }
         else if (job.state === 'waiting') { job.state = 'cancelled'; drawJobs(); }
         else { jobs.splice(jobs.indexOf(job), 1); drawJobs(); if (!jobs.length) $('upBox').classList.add('hidden'); }
       };
@@ -321,24 +371,25 @@
   function drawJob(job) {
     const row = $('job' + job.id);
     if (!row) return;
-    const done = job.sentBytes + job.cur;
+    const sending = job.items.filter(x => x.st === 'sending');
+    const done = job.sentBytes + sending.reduce((t, x) => t + x.cur, 0);
     const pct = job.total ? done / job.total * 100 : (job.state === 'done' ? 100 : 0);
     const bar = row.querySelector('.bar');
     bar.className = 'bar' + (job.state === 'done' ? ' done' : job.state === 'failed' ? ' fail' : '');
     bar.firstChild.style.width = pct.toFixed(1) + '%';
     const secs = ((job.t1 || performance.now()) - job.t0) / 1000;
     const speed = secs > 0.3 ? done / secs : 0;
-    const n = job.items.length, files = n === 1 ? '' : (job.index + ' of ' + n + ' files · ');
+    const n = job.items.length, files = n === 1 ? '' : (job.done + ' of ' + n + ' files · ');
     let meta;
     if (job.state === 'waiting') meta = (n > 1 ? n + ' files · ' : '') + size(job.total) + ' · waiting';
     else if (job.state === 'sending') {
       const eta = speed > 0 ? (job.total - done) / speed : 0;
       meta = files + size(done) + ' of ' + size(job.total) + ' · ' + size(speed) + '/s' + (eta > 1 ? ' · ' + dur(eta) + ' left' : '');
-      if (n > 1 && job.items[job.index]) meta += '\nNow: ' + job.items[job.index].path;
+      if (n > 1 && sending.length) meta += '\nNow (' + sending.length + ' at once): ' + sending.map(x => x.path).join(', ');
     }
     else if (job.state === 'done') meta = (n > 1 ? n + ' files · ' : '') + size(job.total) + ' · sent in ' + dur(secs) + ', times kept';
-    else if (job.state === 'cancelled') meta = 'Cancelled after ' + job.index + ' of ' + n + ' files';
-    else meta = job.error + ' (' + job.index + ' of ' + n + ' done — Retry carries on from there)';
+    else if (job.state === 'cancelled') meta = 'Cancelled after ' + job.done + ' of ' + n + ' files';
+    else meta = job.error + ' (' + job.done + ' of ' + n + ' done — Retry sends only what\'s missing)';
     const m = row.querySelector('.meta');
     m.textContent = meta;
     m.style.whiteSpace = 'pre-line';
@@ -348,8 +399,8 @@
 
   function drawSummary() {
     const left = jobs.filter(j => j.state === 'waiting' || j.state === 'sending');
-    const files = left.reduce((s, j) => s + j.items.length - j.index, 0);
-    const bytes = left.reduce((s, j) => s + j.total - j.sentBytes - j.cur, 0);
+    const files = left.reduce((s, j) => s + j.items.length - j.done, 0);
+    const bytes = left.reduce((s, j) => s + j.total - j.sentBytes - j.items.reduce((t, x) => t + (x.st === 'sending' ? x.cur : 0), 0), 0);
     $('upSummary').textContent = left.length ? files + ' files left · ' + size(bytes) : 'all done';
   }
 
@@ -442,11 +493,13 @@
     $('who').innerHTML = '<span class="dot"></span>Connected to ' + esc(st.phone);
     $('free').textContent = size(st.free) + ' free';
     $('zipAll').classList.toggle('hidden', st.files.length < 2);
+    if (cleanSeen === null) cleanSeen = st.clean;
+    else if (st.clean !== cleanSeen) { cleanSeen = st.clean; cleanHere(); }
     handleSends(st.sends || []);
 
     // what the phone is moving right now, except our own upload (shown on the left)
-    const mine = running && running.items[running.index];
-    const others = st.active.filter(a => !(a.upload && mine && a.name.endsWith(mine.file.name)));
+    const mine = running ? running.items.filter(x => x.st === 'sending').map(x => x.file.name) : [];
+    const others = st.active.filter(a => !(a.upload && mine.some(nm => a.name.endsWith(nm))));
     const mv = $('moving');
     mv.style.display = others.length ? '' : 'none';
     mv.innerHTML = others.map(a => '<div class="row"><div class="main"><div class="name">' + (a.upload ? '↓ ' : '↑ ') + esc(a.name)
@@ -636,6 +689,43 @@
       lastDraw = 0;
       refresh();
     });
+  }
+
+  // ================================================================ clean cache on every device
+  // The button asks the phone to clean; the phone bumps a counter in /api/state and every
+  // open page (this one included) clears its own leftovers on its next check.
+  let cleanSeen = null;
+
+  function cleanHere() {
+    for (let i = jobs.length - 1; i >= 0; i--) if (jobs[i].state !== 'waiting' && jobs[i].state !== 'sending') jobs.splice(i, 1);
+    if (!jobs.length) $('upBox').classList.add('hidden');
+    drawJobs();
+    inside.clear();
+    lastSig = '';
+    for (const [id, r] of recv) if (!r.busy) recv.delete(id);
+    try {
+      Object.keys(localStorage).filter(k => k !== 'awd-me' && k !== 'awd-par').forEach(k => localStorage.removeItem(k));
+      sessionStorage.clear();
+    } catch (e) {}
+    if (window.caches) caches.keys().then(ks => ks.forEach(k => caches.delete(k))).catch(() => {});
+    toast('Cache cleaned on this device');
+  }
+
+  $('btnClean').onclick = async () => {
+    if (!confirm('Clean the cache on the phone and every device that has this page open?\nReceived files are kept.')) return;
+    try {
+      const r = await (await fetch('/api/clean', { method: 'POST' })).json();
+      toast('Phone cleaned · ' + size(r.freed || 0) + ' freed');
+      refresh();
+    } catch (e) { toast('Couldn\'t reach the phone'); }
+  };
+
+  let toastTimer;
+  function toast(msg) {
+    $('toast').textContent = msg;
+    $('toast').classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => $('toast').classList.remove('show'), 3500);
   }
 
   refresh();

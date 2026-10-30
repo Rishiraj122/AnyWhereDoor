@@ -49,6 +49,7 @@ import java.util.zip.ZipOutputStream;
  *   GET  /api/zip?id=b:N&part=k            part k of a batch picked on the phone
  *   POST /api/claim?id=b:N                 a browser offers to pick up a batch (first one wins)
  *   POST /api/sent?id=b:N&part=k           that browser saved part k
+ *   POST /api/clean                        clean the cache on the phone and on every open page
  */
 public class Http {
 
@@ -93,6 +94,8 @@ public class Http {
     private volatile boolean running;
     private volatile int port = DEFAULT_PORT;
     private byte[] pageCache;
+    /** Bumped by a clean; every open page sees the new value in /api/state and clears itself. */
+    private volatile long cleanEpoch;
 
     public Http(Context ctx, Shelf shelf, String phoneName, Events events) {
         this.ctx = ctx.getApplicationContext();
@@ -103,6 +106,14 @@ public class Http {
 
     public int port() { return port; }
     public boolean running() { return running; }
+
+    /** Cleans the phone's cache and tells every connected page to clean its own. Returns bytes freed on the phone. */
+    public long cleanAll() {
+        long freed = shelf.clean();
+        pageCache = null;
+        cleanEpoch = System.currentTimeMillis();
+        return freed;
+    }
 
     public void start() throws IOException {
         IOException last = null;
@@ -247,6 +258,9 @@ public class Http {
                     sendJson(out, ok ? 200 : 404, "{\"ok\":" + ok + "}");
                     return;
                 }
+                break;
+            case "/api/clean":
+                if (m.equals("POST")) { sendJson(out, 200, "{\"ok\":true,\"freed\":" + cleanAll() + "}"); return; }
                 break;
             case "/favicon.ico":
                 sendBytes(out, 404, "text/plain", new byte[0], false);
@@ -507,6 +521,7 @@ public class Http {
         b.append("{\"phone\":").append(js(phoneName));
         b.append(",\"free\":").append(shelf.freeSpace());
         b.append(",\"rev\":").append(shelf.rev());
+        b.append(",\"clean\":").append(cleanEpoch);
         b.append(",\"files\":[");
         boolean first = true;
         for (Shelf.Item it : shelf.list()) {

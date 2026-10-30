@@ -95,6 +95,7 @@ public class MainActivity extends Activity {
                         (d, which) -> { if (which == 0) pickTreeForBatch(); else pickForBatch(); })
                 .show());
         address.setOnClickListener(v -> copy(address.getText().toString()));
+        findViewById(R.id.btnClean).setOnClickListener(v -> cleanAll());
 
         askPermissions();
         HubService.start(this);
@@ -581,6 +582,20 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             Toast.makeText(this, "No app on this phone can open " + it.name, Toast.LENGTH_SHORT).show();
         }
+    }
+
+    /** Cleans the phone's cache; every page open on the hotspot clears its own on its next check. */
+    private void cleanAll() {
+        HubService s = HubService.get();
+        if (s == null) { Toast.makeText(this, "Open the door first", Toast.LENGTH_SHORT).show(); return; }
+        new Thread(() -> {
+            long freed = s.http.cleanAll();
+            runOnUiThread(() -> {
+                Toast.makeText(this, "Cache cleaned · " + (freed >> 20) + " MB freed on the phone. Open pages clean themselves.",
+                        Toast.LENGTH_LONG).show();
+                refresh();
+            });
+        }).start();
     }
 
     private void openHotspotSettings() {
