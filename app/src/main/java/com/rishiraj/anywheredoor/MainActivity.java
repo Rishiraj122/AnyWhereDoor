@@ -46,7 +46,11 @@ public class MainActivity extends Activity {
     private TextView status, address, otherAddresses, hint, free, folder, log, shelfEmpty, myName;
     private View dot, activeBox, sendsBox;
     private LinearLayout activeList, shelfList, sendsList;
-    private Button btnDoor;
+    private View btnDoor, btnCopy;
+    private TextView doorTitle, doorSub;
+    private android.widget.ImageView doorIcon;
+    private android.widget.ScrollView scroll;
+    private boolean logAll;
 
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<Uri> pendingShare = new ArrayList<>();
@@ -84,6 +88,26 @@ public class MainActivity extends Activity {
         activeList = findViewById(R.id.active);
         shelfList = findViewById(R.id.shelf);
         btnDoor = findViewById(R.id.btnDoor);
+        doorTitle = findViewById(R.id.doorTitle);
+        doorSub = findViewById(R.id.doorSub);
+        doorIcon = findViewById(R.id.doorIcon);
+        btnCopy = findViewById(R.id.btnCopy);
+        scroll = findViewById(R.id.scroll);
+        btnCopy.setOnClickListener(v -> copy(address.getText().toString()));
+        findViewById(R.id.btnBell).setOnClickListener(v -> { logAll = true; refresh(); scrollTo(R.id.recentHeader); });
+        findViewById(R.id.btnViewAll).setOnClickListener(v -> {
+            logAll = !logAll;
+            ((TextView) v).setText(logAll ? "Show less" : "View all");
+            refresh();
+        });
+        findViewById(R.id.btnOpenFolder).setOnClickListener(v -> openReceivedFolder());
+        findViewById(R.id.navHome).setOnClickListener(v -> { selectNav(R.id.navHome); scroll.smoothScrollTo(0, 0); });
+        findViewById(R.id.navTransfers).setOnClickListener(v -> {
+            selectNav(R.id.navTransfers);
+            scrollTo(activeBox.getVisibility() == View.VISIBLE ? R.id.activeBox
+                    : sendsBox.getVisibility() == View.VISIBLE ? R.id.sendsBox : R.id.quickHeader);
+        });
+        findViewById(R.id.navShelf).setOnClickListener(v -> { selectNav(R.id.navShelf); scrollTo(R.id.shelfHeader); });
         sendsBox = findViewById(R.id.sendsBox);
         sendsList = findViewById(R.id.sends);
 
@@ -389,9 +413,12 @@ public class MainActivity extends Activity {
     private void refresh() {
         HubService s = HubService.get();
         boolean open = s != null && s.http.running();
-        btnDoor.setText(open ? "Close the door" : "Open the door");
-        btnDoor.setBackgroundResource(open ? R.drawable.btn_ghost : R.drawable.btn_primary);
-        btnDoor.setTextColor(getColor(open ? R.color.text : android.R.color.white));
+        doorTitle.setText(open ? "Close the door" : "Open the door");
+        doorSub.setText(open ? "Stop new connections" : "Start sharing");
+        doorIcon.setImageResource(open ? R.drawable.ic_lock : R.drawable.ic_lock_open);
+        doorTitle.setTextColor(getColor(R.color.bg));
+        doorSub.setTextColor(0xB315131A);
+        btnCopy.setVisibility(address.getVisibility());
 
         if (s == null) {
             setDot(R.color.muted);
@@ -427,6 +454,7 @@ public class MainActivity extends Activity {
                 status.setText("Door is open");
                 address.setText(urls.get(0).replace("http://", ""));
                 address.setVisibility(View.VISIBLE);
+                btnCopy.setVisibility(View.VISIBLE);
                 if (urls.size() > 1) {
                     StringBuilder sb = new StringBuilder("If that doesn't load, try ");
                     for (int i = 1; i < urls.size(); i++) {
@@ -438,8 +466,7 @@ public class MainActivity extends Activity {
                 } else {
                     otherAddresses.setVisibility(View.GONE);
                 }
-                hint.setText("On the laptop or other device: join this phone's hotspot, then type the address above "
-                        + "into Chrome or Edge. Tap the address to copy it.");
+                hint.setText("Join this phone's hotspot, then open the address above in Chrome or Edge on the laptop.");
             }
         }
 
@@ -449,13 +476,48 @@ public class MainActivity extends Activity {
         free.setText(size(s.shelf.freeSpace()) + " free");
         folder.setText("Received files are saved in " + s.shelf.dirLabel());
         synchronized (s.log) {
-            log.setText(s.log.isEmpty() ? "—" : TextUtils.join("\n", s.log.subList(0, Math.min(8, s.log.size()))));
+            log.setText(s.log.isEmpty() ? "—" : TextUtils.join("\n", s.log.subList(0, Math.min(logAll ? 30 : 3, s.log.size()))));
         }
         s.updateNotification(false);
     }
 
     private void setDot(int color) {
-        dot.setBackgroundColor(getColor(color));
+        dot.setBackgroundTintList(android.content.res.ColorStateList.valueOf(getColor(color)));
+        if (color != R.color.ok) btnCopy.setVisibility(View.GONE);
+    }
+
+    private void scrollTo(int id) {
+        View v = findViewById(id);
+        int y = 0;
+        for (View p = v; p != null && p != scroll; p = (View) p.getParent()) y += p.getTop();
+        scroll.smoothScrollTo(0, Math.max(0, y - dp(12)));
+    }
+
+    private void selectNav(int id) {
+        for (int n : new int[]{R.id.navHome, R.id.navTransfers, R.id.navShelf}) {
+            LinearLayout item = findViewById(n);
+            boolean on = n == id;
+            item.setBackgroundResource(on ? R.drawable.nav_sel : 0);
+            int c = getColor(on ? R.color.door : R.color.text);
+            ((android.widget.ImageView) item.getChildAt(0)).setImageTintList(android.content.res.ColorStateList.valueOf(c));
+            TextView t = (TextView) item.getChildAt(1);
+            t.setTextColor(c);
+            t.setTypeface(null, on ? Typeface.BOLD : Typeface.NORMAL);
+        }
+    }
+
+    /** Opens Download/AnyWhereDoor in the phone's file manager. */
+    private void openReceivedFolder() {
+        HubService s = HubService.get();
+        String rel = s == null ? "Download/AnyWhereDoor" : s.shelf.dirLabel().replace("Internal storage/", "");
+        Uri uri = Uri.parse("content://com.android.externalstorage.documents/document/primary%3A" + Uri.encode(rel));
+        Intent i = new Intent(Intent.ACTION_VIEW).setDataAndType(uri, "vnd.android.document/directory")
+                .addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+        try { startActivity(i); }
+        catch (ActivityNotFoundException e) {
+            try { startActivity(new Intent(android.app.DownloadManager.ACTION_VIEW_DOWNLOADS)); }
+            catch (ActivityNotFoundException e2) { Toast.makeText(this, "No file manager found", Toast.LENGTH_SHORT).show(); }
+        }
     }
 
     private void renderActive(List<Http.Active> list) {

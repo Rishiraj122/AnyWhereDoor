@@ -1,13 +1,17 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#0D0D0F</color>
-    <color name="card">#18181B</color>
-    <color name="line">#2E2C2A</color>
-    <color name="text">#ECEFF3</color>
-    <color name="muted">#9A948C</color>
-    <color name="door">#FF8A1F</color>
-    <color name="door_dark">#D9650B</color>
-    <color name="ok">#3DD68C</color>
-    <color name="warn">#F2B544</color>
-    <color name="bad">#F2665C</color>
+    <!-- soft amber on a deep plum-charcoal: warm, low contrast, easy on the eyes -->
+    <color name="bg">#15131A</color>
+    <color name="card">#D91D1B23</color>
+    <color name="card_solid">#1D1B23</color>
+    <color name="line">#2F2C36</color>
+    <color name="text">#F2EDE6</color>
+    <color name="muted">#A39D97</color>
+    <color name="door">#F2A65E</color>
+    <color name="door_dark">#D98845</color>
+    <color name="door_soft">#2EF2A65E</color>
+    <color name="ok">#6BD6A0</color>
+    <color name="warn">#E9C46A</color>
+    <color name="bad">#E8857A</color>
+    <color name="bad_soft">#24E8857A</color>
 </resources>
