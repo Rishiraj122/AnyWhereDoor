@@ -51,6 +51,12 @@ public class MainActivity extends Activity {
     private final Handler handler = new Handler(Looper.getMainLooper());
     private final List<Uri> pendingShare = new ArrayList<>();
     private String shelfSignature = "";
+    private boolean selecting;
+    private final java.util.Set<String> selected = new java.util.HashSet<>();
+    private List<Shelf.Item> lastItems = new ArrayList<>();
+    private TextView btnSelect;
+    private Button btnDeleteSel, btnSelectAll;
+    private View selectBar;
     private boolean wantOpen = true;
 
     private final Runnable poll = new Runnable() {
@@ -96,6 +102,17 @@ public class MainActivity extends Activity {
                 .show());
         address.setOnClickListener(v -> copy(address.getText().toString()));
         findViewById(R.id.btnClean).setOnClickListener(v -> cleanAll());
+        btnSelect = findViewById(R.id.btnSelect);
+        selectBar = findViewById(R.id.selectBar);
+        btnSelectAll = findViewById(R.id.btnSelectAll);
+        btnDeleteSel = findViewById(R.id.btnDeleteSel);
+        btnSelect.setOnClickListener(v -> setSelecting(!selecting));
+        btnSelectAll.setOnClickListener(v -> {
+            if (selected.size() == lastItems.size()) selected.clear();
+            else for (Shelf.Item it : lastItems) selected.add(it.id);
+            redrawShelf();
+        });
+        btnDeleteSel.setOnClickListener(v -> deleteSelected());
 
         askPermissions();
         HubService.start(this);
@@ -497,8 +514,20 @@ public class MainActivity extends Activity {
     private void renderShelf(List<Shelf.Item> items, HubService s) {
         StringBuilder sig = new StringBuilder();
         for (Shelf.Item it : items) sig.append(it.id).append(it.size).append(it.count).append(it.uri != null).append('|');
+        sig.append(selecting).append(selected);
         if (sig.toString().equals(shelfSignature)) return;
         shelfSignature = sig.toString();
+        lastItems = items;
+        java.util.Set<String> ids = new java.util.HashSet<>();
+        for (Shelf.Item it : items) ids.add(it.id);
+        selected.retainAll(ids);                       // drop anything that left the shelf
+        btnSelect.setVisibility(items.isEmpty() && !selecting ? View.GONE : View.VISIBLE);
+        btnSelect.setText(selecting ? "Done" : "Select");
+        selectBar.setVisibility(selecting ? View.VISIBLE : View.GONE);
+        btnSelectAll.setText(!items.isEmpty() && selected.size() == items.size() ? "Select none" : "Select all");
+        btnDeleteSel.setText(selected.isEmpty() ? "Delete" : "Delete " + selected.size());
+        btnDeleteSel.setEnabled(!selected.isEmpty());
+        btnDeleteSel.setAlpha(selected.isEmpty() ? 0.4f : 1f);
 
         shelfList.removeAllViews();
         shelfEmpty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
@@ -513,6 +542,13 @@ public class MainActivity extends Activity {
             row.setOrientation(LinearLayout.HORIZONTAL);
             row.setGravity(Gravity.CENTER_VERTICAL);
             row.setPadding(dp(14), dp(10), dp(4), dp(10));
+            if (selecting) {
+                android.widget.CheckBox cb = new android.widget.CheckBox(this);
+                cb.setChecked(selected.contains(it.id));
+                cb.setClickable(false);                 // the whole row toggles
+                cb.setButtonTintList(android.content.res.ColorStateList.valueOf(getColor(R.color.door)));
+                row.addView(cb);
+            }
 
             LinearLayout col = new LinearLayout(this);
             col.setOrientation(LinearLayout.VERTICAL);
@@ -531,14 +567,59 @@ public class MainActivity extends Activity {
             col.addView(text(meta, 12, R.color.muted, false));
             row.addView(col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1));
 
-            TextView x = text("✕", 18, R.color.muted, false);
-            x.setPadding(dp(14), dp(8), dp(14), dp(8));
-            x.setOnClickListener(v -> confirmRemove(it));
-            row.addView(x);
+            if (!selecting) {
+                TextView x = text("✕", 18, R.color.muted, false);
+                x.setPadding(dp(14), dp(8), dp(14), dp(8));
+                x.setOnClickListener(v -> confirmRemove(it));
+                row.addView(x);
+            }
 
-            row.setOnClickListener(v -> openItem(it));
+            row.setOnClickListener(v -> {
+                if (!selecting) { openItem(it); return; }
+                if (!selected.remove(it.id)) selected.add(it.id);
+                redrawShelf();
+            });
+            row.setOnLongClickListener(v -> {              // long-press starts selecting
+                if (!selecting) { selecting = true; selected.add(it.id); redrawShelf(); }
+                return true;
+            });
             shelfList.addView(row);
         }
+    }
+
+    private void setSelecting(boolean on) {
+        selecting = on;
+        selected.clear();
+        redrawShelf();
+    }
+
+    private void redrawShelf() {
+        shelfSignature = "";
+        refresh();
+    }
+
+    private void deleteSelected() {
+        List<Shelf.Item> pick = new ArrayList<>();
+        int received = 0;
+        for (Shelf.Item it : lastItems) if (selected.contains(it.id)) { pick.add(it); if (!it.fromPhone) received++; }
+        if (pick.isEmpty()) return;
+        String msg = received == 0
+                ? "They're only taken off the shelf. The originals stay on the phone."
+                : received + (received == 1 ? " received item is" : " received items are") + " deleted from the phone."
+                  + (received < pick.size() ? " Items shared from this phone are only taken off the shelf." : "");
+        new AlertDialog.Builder(this)
+                .setTitle("Delete " + pick.size() + (pick.size() == 1 ? " item?" : " items?"))
+                .setMessage(msg)
+                .setPositiveButton("Delete", (d, w) -> {
+                    HubService h = HubService.get();
+                    if (h == null) return;
+                    new Thread(() -> {
+                        for (Shelf.Item it : pick) h.shelf.remove(it.id);
+                        runOnUiThread(() -> setSelecting(false));
+                    }).start();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     private void confirmRemove(Shelf.Item it) {

@@ -1,12 +1,12 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <color name="bg">#0F1318</color>
-    <color name="card">#1A2028</color>
-    <color name="line">#2A323D</color>
+    <color name="bg">#0D0D0F</color>
+    <color name="card">#18181B</color>
+    <color name="line">#2E2C2A</color>
     <color name="text">#ECEFF3</color>
-    <color name="muted">#8B95A3</color>
-    <color name="door">#EC5A8E</color>
-    <color name="door_dark">#B83A68</color>
+    <color name="muted">#9A948C</color>
+    <color name="door">#FF8A1F</color>
+    <color name="door_dark">#D9650B</color>
     <color name="ok">#3DD68C</color>
     <color name="warn">#F2B544</color>
     <color name="bad">#F2665C</color>

@@ -6,8 +6,8 @@
 <title>AnyWhereDoor</title>
 <style>
   :root {
-    --bg: #0f1318; --card: #1a2028; --line: #2a323d; --text: #eceff3; --muted: #8b95a3;
-    --door: #ec5a8e; --door2: #b83a68; --ok: #3dd68c; --bad: #f2665c; --warn: #f2b544;
+    --bg: #0D0D0F; --card: #18181B; --line: #2E2C2A; --text: #eceff3; --muted: #9A948C;
+    --door: #FF8A1F; --door2: #D9650B; --ok: #3dd68c; --bad: #f2665c; --warn: #f2b544;
   }
   * { box-sizing: border-box; }
   body {
@@ -21,7 +21,7 @@
   .sub { color: var(--muted); font-size: 13px; }
   .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: var(--ok); margin-right: 6px; vertical-align: 1px; }
   .dot.off { background: var(--bad); }
-  .banner { display: none; margin-top: 16px; padding: 12px 14px; border-radius: 12px; background: #3a1f22; color: #ffc9c4; font-size: 14px; }
+  .banner { display: none; margin-top: 16px; padding: 12px 14px; border-radius: 12px; background: #3a1f1a; color: #ffc9c4; font-size: 14px; }
   .banner.show { display: block; }
 
   .grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 20px; }
@@ -37,7 +37,7 @@
     min-height: 200px; padding: 24px; border: 2px dashed var(--line);
     transition: border-color .15s, background .15s;
   }
-  .drop.over { border-color: var(--door); background: #21171d; }
+  .drop.over { border-color: var(--door); background: #231a12; }
   .drop b { font-size: 17px; }
   .drop .sub { margin-top: 6px; max-width: 340px; }
   .drop .btns { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; justify-content: center; }
@@ -69,15 +69,15 @@
   .x { background: none; border: 0; color: var(--muted); font-size: 16px; cursor: pointer; padding: 6px 8px; border-radius: 8px; flex: none; }
   .x:hover { color: var(--text); background: var(--line); }
   .empty { padding: 16px 14px; color: var(--muted); font-size: 14px; }
-  .tag { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: #2c2330; color: #f5a3c1; margin-left: 6px; vertical-align: 1px; }
+  .tag { font-size: 11px; padding: 1px 6px; border-radius: 6px; background: #33240f; color: #ffb46b; margin-left: 6px; vertical-align: 1px; }
   .hidden { display: none !important; }
   .toggle { background: none; border: 0; color: var(--muted); cursor: pointer; font: inherit; font-size: 12px; padding: 2px 0; }
   .toggle:hover { color: var(--text); }
 
   #files { overflow: hidden; }
-  .inside { border-top: 1px solid var(--line); background: #151a21; max-height: 420px; overflow: auto; }
+  .inside { border-top: 1px solid var(--line); background: #131315; max-height: 420px; overflow: auto; }
   .inside table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .inside td { padding: 6px 10px; border-top: 1px solid #222a33; white-space: nowrap; }
+  .inside td { padding: 6px 10px; border-top: 1px solid #262422; white-space: nowrap; }
   .inside tr:first-child td { border-top: 0; }
   .inside td.n { color: var(--muted); text-align: right; width: 1%; font-variant-numeric: tabular-nums; }
   .inside td.p { overflow: hidden; text-overflow: ellipsis; max-width: 0; width: 100%; }
@@ -100,9 +100,9 @@
 <div class="wrap">
   <header>
     <svg viewBox="26 24 56 64" aria-hidden="true">
-      <path fill="#B83A68" d="M36,26h36a4,4 0 0 1 4,4v52h-44v-52a4,4 0 0 1 4,-4z"/>
-      <path fill="#EC5A8E" d="M39,29h30a2,2 0 0 1 2,2v51h-34v-51a2,2 0 0 1 2,-2z"/>
-      <path fill="#F58BB0" d="M43,34h22v16h-22zM43,55h22v22h-22z"/>
+      <path fill="#D9650B" d="M36,26h36a4,4 0 0 1 4,4v52h-44v-52a4,4 0 0 1 4,-4z"/>
+      <path fill="#FF8A1F" d="M39,29h30a2,2 0 0 1 2,2v51h-34v-51a2,2 0 0 1 2,-2z"/>
+      <path fill="#FFB46B" d="M43,34h22v16h-22zM43,55h22v22h-22z"/>
       <circle fill="#FFD24D" cx="63" cy="54" r="3"/>
       <path fill="#ECEFF3" d="M28,82h52v3h-52z"/>
     </svg>
