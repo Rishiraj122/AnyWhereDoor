@@ -112,6 +112,40 @@ public class Http {
         this.shelf = shelf;
         this.phoneName = phoneName;
         this.events = events;
+        loadResume();
+    }
+
+    // ---------------------------------------------------------------- resume points, kept on disk
+    // So a half-sent file carries on from where it stopped even after the app was closed or killed.
+    //   p <key> <file>   upload in progress; its .part holds what arrived
+    //   f <key> <file>   upload finished
+
+    private File resumeFile() { return new File(ctx.getFilesDir(), "resume.tsv"); }
+
+    private synchronized void saveResume(String kind, String key, File f) {
+        try (java.io.Writer w = new java.io.FileWriter(resumeFile(), true)) {
+            w.write(kind + "\t" + key + "\t" + f.getAbsolutePath() + "\n");
+        } catch (IOException ignored) { }
+    }
+
+    private void loadResume() {
+        File m = resumeFile();
+        if (!m.isFile()) return;
+        try (java.io.BufferedReader r = new java.io.BufferedReader(new java.io.FileReader(m))) {
+            String line;
+            while ((line = r.readLine()) != null) {
+                String[] p = line.split("\t", 3);
+                if (p.length < 3) continue;
+                if (p[0].equals("p")) pending.put(p[1], new File(p[2]));
+                else if (p[0].equals("f")) { pending.remove(p[1]); finished.put(p[1], new File(p[2])); }
+            }
+        } catch (IOException ignored) { }
+        pending.values().removeIf(f -> !Shelf.partOf(f).exists());
+        finished.values().removeIf(f -> !f.exists());
+        try (java.io.Writer w = new java.io.FileWriter(m, false)) {          // rewrite without the stale lines
+            for (Map.Entry<String, File> e : pending.entrySet()) w.write("p\t" + e.getKey() + "\t" + e.getValue().getAbsolutePath() + "\n");
+            for (Map.Entry<String, File> e : finished.entrySet()) w.write("f\t" + e.getKey() + "\t" + e.getValue().getAbsolutePath() + "\n");
+        } catch (IOException ignored) { }
     }
 
     public int port() { return port; }
@@ -134,6 +168,9 @@ public class Http {
         }
         for (File f : pending.values()) Shelf.partOf(f).delete();
         pending.clear();
+        synchronized (this) { try (java.io.Writer w = new java.io.FileWriter(resumeFile(), false)) {
+            for (Map.Entry<String, File> e : finished.entrySet()) w.write("f\t" + e.getKey() + "\t" + e.getValue().getAbsolutePath() + "\n");
+        } catch (IOException ignored) { } }
         shelf.dropAllBatches();
     }
 
@@ -141,7 +178,9 @@ public class Http {
 
     /** Cleans the phone's cache and tells every connected page to clean its own. Returns bytes freed on the phone. */
     public long cleanAll() {
-        long freed = shelf.clean();
+        java.util.Set<File> keep = new java.util.HashSet<>();
+        for (File f : pending.values()) keep.add(Shelf.partOf(f));
+        long freed = shelf.clean(keep);
         pageCache = null;
         cleanEpoch = System.currentTimeMillis();
         return freed;
@@ -330,6 +369,7 @@ public class Http {
         long mtime = 0;
         try { mtime = Long.parseLong(r.q("mtime")); } catch (Exception ignored) { }
         String key = r.q("key");
+        if (key != null) key = key.replace('\t', ' ').replace('\n', ' ');
         if (key != null && key.isEmpty()) key = null;
         long offset = 0;
         try { offset = Long.parseLong(r.q("offset")); } catch (Exception ignored) { }
@@ -360,7 +400,7 @@ public class Http {
                 sendJson(out, 500, "{\"error\":" + js(e.getMessage()) + "}");
                 return;
             }
-            if (key != null) pending.put(key, target);
+            if (key != null) { pending.put(key, target); saveResume("p", key, target); }
         }
         if ("100-continue".equalsIgnoreCase(r.headers.get("expect"))) {
             out.write("HTTP/1.1 100 Continue\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1));
@@ -402,7 +442,7 @@ public class Http {
             if (!ok) err = "Couldn't save the file";
         }
         if (!ok && key == null) part.delete();        // with a key, keep what arrived so it can resume
-        if (ok && key != null) { pending.remove(key); finished.put(key, target); }
+        if (ok && key != null) { pending.remove(key); finished.put(key, target); saveResume("f", key, target); }
         active.remove(a);
         if (ok) shelf.received(target, mtime, from, replaced);
         events.onTransferEnd(a, ok, err);
@@ -651,6 +691,7 @@ public class Http {
     private String resume(String key) {
         if (justStopped()) return "{\"stopped\":true}";
         if (key == null) return "{\"have\":0}";
+        key = key.replace('\t', ' ').replace('\n', ' ');
         File f = finished.get(key);
         if (f != null) {
             if (f.exists()) return "{\"done\":true}";

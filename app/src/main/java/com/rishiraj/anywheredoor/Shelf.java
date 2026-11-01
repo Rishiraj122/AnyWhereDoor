@@ -395,6 +395,7 @@ public class Shelf {
                 if (!d.mkdirs()) throw new IOException("Couldn't make folder " + d.getName());
                 root = d.getName();
                 batchRoots.put(key, root);
+                appendMeta("b", batch + "|" + parts.get(0), root);
                 arrivals.put(root, System.currentTimeMillis());
                 appendMeta("a", root, String.valueOf(System.currentTimeMillis()));
             }
@@ -484,6 +485,7 @@ public class Shelf {
                         case "t": times.put(p[1], Long.parseLong(p[2])); break;
                         case "a": arrivals.put(p[1], Long.parseLong(p[2])); break;
                         case "f": senders.put(p[1], p[2]); break;
+                        case "b": batchRoots.put(p[1].replaceFirst("\\|", "\n"), p[2]); break;
                     }
                 } catch (NumberFormatException ignored) { }
             }
@@ -492,10 +494,12 @@ public class Shelf {
         times.keySet().removeIf(k -> !new File(dir, k).exists());
         arrivals.keySet().removeIf(k -> !new File(dir, k).exists());
         senders.keySet().removeIf(k -> !new File(dir, k).exists());
+        batchRoots.values().removeIf(v -> !new File(dir, v).isDirectory());
         try (Writer w = new FileWriter(m, false)) {
             for (Map.Entry<String, Long> e : times.entrySet()) w.write("t\t" + e.getKey() + "\t" + e.getValue() + "\n");
             for (Map.Entry<String, Long> e : arrivals.entrySet()) w.write("a\t" + e.getKey() + "\t" + e.getValue() + "\n");
             for (Map.Entry<String, String> e : senders.entrySet()) w.write("f\t" + e.getKey() + "\t" + e.getValue() + "\n");
+            for (Map.Entry<String, String> e : batchRoots.entrySet()) w.write("b\t" + e.getKey().replaceFirst("\n", "|") + "\t" + e.getValue() + "\n");
         } catch (IOException ignored) { }
     }
 
@@ -754,10 +758,10 @@ public class Shelf {
      * connections (".name.part" untouched for a minute), ZIP batches that are fully saved,
      * and the app's own cache folders. Received files are never touched.
      */
-    public synchronized long clean() {
+    public synchronized long clean(java.util.Set<File> keep) {
         long[] freed = {0};
         long cutoff = System.currentTimeMillis() - 60_000;     // live uploads write every moment
-        cleanParts(dir, cutoff, freed);
+        cleanParts(dir, cutoff, keep, freed);
         batches.values().removeIf(b -> b.delivered >= b.parts);
         wipe(app.getCacheDir(), freed);
         wipe(app.getExternalCacheDir(), freed);
@@ -765,12 +769,12 @@ public class Shelf {
         return freed[0];
     }
 
-    private static void cleanParts(File d, long cutoff, long[] freed) {
+    private static void cleanParts(File d, long cutoff, java.util.Set<File> keep, long[] freed) {
         File[] fs = d.listFiles();
         if (fs == null) return;
         for (File f : fs) {
-            if (f.isDirectory()) cleanParts(f, cutoff, freed);
-            else if (f.getName().startsWith(".") && f.getName().endsWith(".part") && f.lastModified() < cutoff) {
+            if (f.isDirectory()) cleanParts(f, cutoff, keep, freed);
+            else if (f.getName().startsWith(".") && f.getName().endsWith(".part") && f.lastModified() < cutoff && !keep.contains(f)) {
                 long n = f.length();
                 if (f.delete()) freed[0] += n;
             }
