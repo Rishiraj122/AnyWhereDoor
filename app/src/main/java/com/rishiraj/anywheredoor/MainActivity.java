@@ -43,7 +43,8 @@ public class MainActivity extends Activity {
     private static final int REQ_BATCH = 13;
     private static final int REQ_BATCH_TREE = 14;
 
-    private TextView status, address, otherAddresses, hint, free, folder, log, shelfEmpty, myName;
+    private TextView status, address, otherAddresses, hint, free, folder, log, myName;
+    private View shelfEmpty;
     private View dot, activeBox, sendsBox;
     private LinearLayout activeList, shelfList, sendsList;
     private View btnDoor, btnCopy;
