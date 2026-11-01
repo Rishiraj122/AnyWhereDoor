@@ -102,6 +102,21 @@ public class MainActivity extends Activity {
                 .show());
         address.setOnClickListener(v -> copy(address.getText().toString()));
         findViewById(R.id.btnClean).setOnClickListener(v -> cleanAll());
+        findViewById(R.id.btnSettings).setOnClickListener(v -> showSettings());
+        findViewById(R.id.btnStop).setOnClickListener(v -> new AlertDialog.Builder(this)
+                .setTitle("Stop everything?")
+                .setMessage("Every upload and download on every device stops now, the queues are cleared and "
+                        + "half-finished files are thrown away. Files that already arrived are kept.")
+                .setPositiveButton("Stop & clear", (d, w) -> {
+                    HubService h = HubService.get();
+                    if (h == null) return;
+                    new Thread(() -> {
+                        h.http.stopAll();
+                        runOnUiThread(() -> { Toast.makeText(this, "Stopped and cleared on all devices", Toast.LENGTH_SHORT).show(); refresh(); });
+                    }).start();
+                })
+                .setNegativeButton("Cancel", null)
+                .show());
         btnSelect = findViewById(R.id.btnSelect);
         selectBar = findViewById(R.id.selectBar);
         btnSelectAll = findViewById(R.id.btnSelectAll);
@@ -663,6 +678,42 @@ public class MainActivity extends Activity {
         } catch (Exception e) {
             Toast.makeText(this, "No app on this phone can open " + it.name, Toast.LENGTH_SHORT).show();
         }
+    }
+
+    private void showSettings() {
+        HubService h = HubService.get();
+        if (h == null) { Toast.makeText(this, "Open the door first", Toast.LENGTH_SHORT).show(); return; }
+        LinearLayout box = new LinearLayout(this);
+        box.setOrientation(LinearLayout.VERTICAL);
+        box.setPadding(dp(22), dp(8), dp(22), 0);
+        TextView label = text("", 16, R.color.text, true);
+        TextView help = text("How many files go up from the laptop at once, and how many ZIPs the laptop pulls at once. "
+                + "More helps with lots of small files; a single big file won't go faster. Applies to every device right away.",
+                13, R.color.muted, false);
+        android.widget.SeekBar bar = new android.widget.SeekBar(this);
+        bar.setMax(7);                                   // 1..8
+        bar.setProgress(h.http.par() - 1);
+        bar.setProgressTintList(android.content.res.ColorStateList.valueOf(getColor(R.color.door)));
+        bar.setThumbTintList(android.content.res.ColorStateList.valueOf(getColor(R.color.door)));
+        Runnable show = () -> label.setText("Parallel transfers: " + (bar.getProgress() + 1));
+        show.run();
+        bar.setOnSeekBarChangeListener(new android.widget.SeekBar.OnSeekBarChangeListener() {
+            @Override public void onProgressChanged(android.widget.SeekBar b, int p, boolean u) { show.run(); }
+            @Override public void onStartTrackingTouch(android.widget.SeekBar b) { }
+            @Override public void onStopTrackingTouch(android.widget.SeekBar b) { }
+        });
+        box.addView(label);
+        box.addView(bar, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, dp(48)));
+        box.addView(help);
+        new AlertDialog.Builder(this)
+                .setTitle("Settings")
+                .setView(box)
+                .setPositiveButton("Save", (d, w) -> {
+                    h.http.setPar(bar.getProgress() + 1);
+                    Toast.makeText(this, "Parallel transfers: " + (bar.getProgress() + 1), Toast.LENGTH_SHORT).show();
+                })
+                .setNegativeButton("Cancel", null)
+                .show();
     }
 
     /** Cleans the phone's cache; every page open on the hotspot clears its own on its next check. */

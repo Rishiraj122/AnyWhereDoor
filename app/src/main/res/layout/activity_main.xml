@@ -49,6 +49,17 @@
                 android:textColor="@color/muted"
                 android:textSize="13sp" />
         </LinearLayout>
+
+        <TextView
+            android:id="@+id/btnSettings"
+            android:layout_width="48dp"
+            android:layout_height="48dp"
+            android:background="@drawable/btn_ghost"
+            android:contentDescription="Settings"
+            android:gravity="center"
+            android:text="⚙"
+            android:textColor="@color/door"
+            android:textSize="22sp" />
     </LinearLayout>
 
     <!-- Door card -->
@@ -248,6 +259,18 @@
         android:text="Clean cache on all devices"
         android:textAllCaps="false"
         android:textColor="@color/text"
+        android:textSize="14sp" />
+
+    <Button
+        android:id="@+id/btnStop"
+        android:layout_width="match_parent"
+        android:layout_height="48dp"
+        android:layout_marginTop="10dp"
+        android:background="@drawable/btn_ghost"
+        android:stateListAnimator="@null"
+        android:text="■  Stop all transfers &amp; clear"
+        android:textAllCaps="false"
+        android:textColor="@color/bad"
         android:textSize="14sp" />
 
     <!-- Shelf -->

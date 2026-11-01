@@ -132,18 +132,20 @@
       <div class="me hidden" id="mobileFolder">Put picked files in a folder named <input id="folderName" maxlength="60" placeholder="optional"></div>
       <div class="me">Show me as <input id="me" maxlength="40"></div>
       <div class="par" title="How many files go up at the same time. More helps with lots of small files; one big file won't go faster.">
-        Parallel files <input type="range" id="par" min="1" max="8" step="1"> <b id="parVal"></b>
+        Parallel transfers <input type="range" id="par" min="1" max="8" step="1"> <b id="parVal"></b>
       </div>
 
       <div id="upBox" class="hidden">
-        <p class="label" style="margin-top:18px">UPLOADS <span id="upSummary"></span></p>
+        <p class="label" style="margin-top:18px">UPLOADS <span><span id="upSummary"></span>
+          <button class="btn ghost tiny" id="btnStop" style="margin-left:8px; color: var(--bad)">■ Stop all &amp; clear</button></span></p>
         <div class="card" id="ups"></div>
       </div>
     </section>
 
     <section>
       <div id="sendBox" class="hidden" style="margin-bottom:18px">
-        <p class="label">FROM THE PHONE <span>saved to your Downloads folder</span></p>
+        <p class="label">FROM THE PHONE <span>saved to your Downloads folder
+          <button class="btn ghost tiny" id="btnStop2" style="margin-left:8px; color: var(--bad)">■ Stop all &amp; clear</button></span></p>
         <div class="card" id="sendList"></div>
         <div class="note">Keep this page open until every ZIP is saved. If Chrome asks to allow multiple downloads, click Allow.</div>
       </div>
@@ -204,16 +206,23 @@
   $('me').addEventListener('change', () => { try { localStorage.setItem('awd-me', $('me').value.trim()); } catch (e) {} });
 
   // ---- how many files go up at once (1-8)
+  // The phone keeps the setting (app ⚙ Settings or this slider); every device uses it.
   let par = 3;
-  try { par = +localStorage.getItem('awd-par') || 3; } catch (e) {}
-  $('par').value = par;
-  $('parVal').textContent = par;
+  const sleep = ms => new Promise(r => setTimeout(r, ms));
+  function showPar(n) { $('par').value = n; $('parVal').textContent = n; }
+  showPar(par);
   $('par').addEventListener('input', () => {
     par = +$('par').value;
     $('parVal').textContent = par;
-    try { localStorage.setItem('awd-par', par); } catch (e) {}
     if (running && running.kick) running.kick();          // start more right away if raised
   });
+  $('par').addEventListener('change', () => fetch('/api/settings?par=' + par, { method: 'POST' }).catch(() => {}));
+  function syncPar(n) {
+    if (!n || n === par || document.activeElement === $('par')) return;
+    par = n;
+    showPar(n);
+    if (running && running.kick) running.kick();
+  }
 
   // ================================================================ uploads
   // A job is one folder, or one batch of loose files. Jobs run one after another.
@@ -221,14 +230,24 @@
   const jobs = [];
   let running = null, nextId = 1;
 
+  // Same folder (name, file count, total size) -> same id, so the phone can match a re-pick to what already arrived.
+  function batchId(label, items) {
+    let h = 7;
+    const s = label + '|' + items.length + '|' + items.reduce((t, it) => t + it.file.size, 0);
+    for (let i = 0; i < s.length; i++) h = (h * 31 + s.charCodeAt(i)) | 0;
+    return 'r' + (h >>> 0).toString(36);
+  }
+
   function addJob(label, items, folder) {
     items.sort(byTime);
-    items.forEach(it => { it.st = 'todo'; it.cur = 0; it.err = ''; it.xhr = null; });
+    items.forEach(it => { it.st = 'todo'; it.cur = 0; it.base = 0; it.err = ''; it.xhr = null; });
+    const bid = batchId(label, items);
+    items.forEach(it => it.key = bid + '|' + it.path + '|' + it.file.size + '|' + Math.round(it.mtime));
     const job = {
       id: nextId++, label, items, folder,
       total: items.reduce((s, it) => s + it.file.size, 0),
       sentBytes: 0, done: 0, state: 'waiting', error: '',
-      batch: Date.now().toString(36) + Math.random().toString(36).slice(2, 8),
+      batch: bid,
       t0: 0, t1: 0, kick: null, cancelled: false
     };
     jobs.push(job);
@@ -291,8 +310,9 @@
           sendWithRetry(job, it).then(res => {
             live--;
             it.cur = 0;
+            it.base = 0;
             it.xhr = null;
-            if (res.ok) { it.st = 'done'; job.sentBytes += it.file.size; job.done++; }
+            if (res.ok) { it.st = 'done'; job.sentBytes += it.file.size; job.done++; if (res.skipped) job.skipped = (job.skipped || 0) + 1; }
             else if (res.aborted || job.cancelled) it.st = 'todo';
             else { it.st = 'fail'; it.err = res.error; }
             drawJob(job);
@@ -313,16 +333,33 @@
     });
   }
 
+  // Before every try, ask the phone how much of this file it already has, and send only the rest.
+  // If the phone can't be reached, keep waiting (it's usually a dropped hotspot) instead of giving up.
   async function sendWithRetry(job, it) {
-    let res;
-    for (let tries = 0; ; ) {
-      res = await sendOne(job, it);
-      if (res.ok || res.aborted || job.cancelled || ++tries >= 3) return res;
-      await new Promise(r => setTimeout(r, 1500));         // brief wait, then retry this file
+    for (let refused = 0; ; ) {
+      if (job.cancelled) return { aborted: true };
+      let have = 0;
+      try {
+        const r = await (await fetch('/api/resume?key=' + encodeURIComponent(it.key), { cache: 'no-store' })).json();
+        if (r.stopped) { stopHere('Stopped from another device'); return { aborted: true }; }
+        if (r.done) return { ok: true, skipped: true };
+        have = Math.min(r.have || 0, it.file.size);
+      } catch (e) {
+        job.waiting = true; drawJob(job);
+        await sleep(3000);
+        continue;
+      }
+      job.waiting = false;
+      it.base = have;
+      const res = await sendOne(job, it, have);
+      if (res.ok || res.aborted) return res;
+      if (res.stopped) { stopHere('Stopped from another device'); return { aborted: true }; }
+      if (!res.net && ++refused >= 3) return res;       // the phone said no 3 times (e.g. out of space)
+      await sleep(2000);
     }
   }
 
-  function sendOne(job, it) {
+  function sendOne(job, it, offset) {
     return new Promise(resolve => {
       const xhr = new XMLHttpRequest();
       it.xhr = xhr;
@@ -331,18 +368,22 @@
       const qs = 'path=' + encodeURIComponent(job.folder ? it.path : it.file.name)
         + '&mtime=' + encodeURIComponent(Math.round(it.mtime))
         + '&batch=' + encodeURIComponent(job.batch)
-        + '&from=' + encodeURIComponent(from);
+        + '&from=' + encodeURIComponent(from)
+        + '&key=' + encodeURIComponent(it.key)
+        + '&offset=' + offset;
       xhr.open('PUT', '/api/upload?' + qs);
       xhr.upload.onprogress = e => { it.cur = e.loaded; drawJob(job); };
       xhr.onload = () => {
         if (xhr.status === 200) return resolve({ ok: true });
+        if (xhr.status === 410) return resolve({ stopped: true });
+        if (xhr.status === 409) return resolve({ ok: false, net: true });      // resume point moved: ask again
         let err = 'Phone said ' + xhr.status;
         try { err = JSON.parse(xhr.responseText).error || err; } catch (e) {}
         resolve({ ok: false, error: err });
       };
-      xhr.onerror = () => resolve({ ok: false, error: 'connection to the phone dropped' });
+      xhr.onerror = () => resolve({ ok: false, net: true, error: 'connection to the phone dropped' });
       xhr.onabort = () => resolve({ aborted: true });
-      xhr.send(it.file);
+      xhr.send(offset ? it.file.slice(offset) : it.file);
     });
   }
 
@@ -372,7 +413,7 @@
     const row = $('job' + job.id);
     if (!row) return;
     const sending = job.items.filter(x => x.st === 'sending');
-    const done = job.sentBytes + sending.reduce((t, x) => t + x.cur, 0);
+    const done = job.sentBytes + sending.reduce((t, x) => t + x.base + x.cur, 0);
     const pct = job.total ? done / job.total * 100 : (job.state === 'done' ? 100 : 0);
     const bar = row.querySelector('.bar');
     bar.className = 'bar' + (job.state === 'done' ? ' done' : job.state === 'failed' ? ' fail' : '');
@@ -384,10 +425,12 @@
     if (job.state === 'waiting') meta = (n > 1 ? n + ' files · ' : '') + size(job.total) + ' · waiting';
     else if (job.state === 'sending') {
       const eta = speed > 0 ? (job.total - done) / speed : 0;
-      meta = files + size(done) + ' of ' + size(job.total) + ' · ' + size(speed) + '/s' + (eta > 1 ? ' · ' + dur(eta) + ' left' : '');
+      meta = job.waiting ? 'Connection lost — waiting for the phone, will carry on from where it stopped · ' + files + size(done) + ' of ' + size(job.total)
+        : files + size(done) + ' of ' + size(job.total) + ' · ' + size(speed) + '/s' + (eta > 1 ? ' · ' + dur(eta) + ' left' : '');
       if (n > 1 && sending.length) meta += '\nNow (' + sending.length + ' at once): ' + sending.map(x => x.path).join(', ');
     }
-    else if (job.state === 'done') meta = (n > 1 ? n + ' files · ' : '') + size(job.total) + ' · sent in ' + dur(secs) + ', times kept';
+    else if (job.state === 'done') meta = (n > 1 ? n + ' files · ' : '') + size(job.total) + ' · sent in ' + dur(secs) + ', times kept'
+      + (job.skipped ? ' · ' + job.skipped + ' were already on the phone' : '');
     else if (job.state === 'cancelled') meta = 'Cancelled after ' + job.done + ' of ' + n + ' files';
     else meta = job.error + ' (' + job.done + ' of ' + n + ' done — Retry sends only what\'s missing)';
     const m = row.querySelector('.meta');
@@ -400,7 +443,7 @@
   function drawSummary() {
     const left = jobs.filter(j => j.state === 'waiting' || j.state === 'sending');
     const files = left.reduce((s, j) => s + j.items.length - j.done, 0);
-    const bytes = left.reduce((s, j) => s + j.total - j.sentBytes - j.items.reduce((t, x) => t + (x.st === 'sending' ? x.cur : 0), 0), 0);
+    const bytes = left.reduce((s, j) => s + j.total - j.sentBytes - j.items.reduce((t, x) => t + (x.st === 'sending' ? x.base + x.cur : 0), 0), 0);
     $('upSummary').textContent = left.length ? files + ' files left · ' + size(bytes) : 'all done';
   }
 
@@ -493,6 +536,9 @@
     $('who').innerHTML = '<span class="dot"></span>Connected to ' + esc(st.phone);
     $('free').textContent = size(st.free) + ' free';
     $('zipAll').classList.toggle('hidden', st.files.length < 2);
+    syncPar(st.par);
+    if (stopSeen === null) stopSeen = st.stop;
+    else if (st.stop !== stopSeen) { stopSeen = st.stop; stopHere('Stopped from another device'); }
     if (cleanSeen === null) cleanSeen = st.clean;
     else if (st.clean !== cleanSeen) { cleanSeen = st.clean; cleanHere(); }
     handleSends(st.sends || []);
@@ -598,36 +644,49 @@
 
   function handleSends(sends) {
     lastSends = sends;
-    for (const id of [...recv.keys()]) if (!sends.some(s => s.id === id)) recv.delete(id);   // cancelled on the phone
+    for (const id of [...recv.keys()]) if (!sends.some(s => s.id === id)) { recv.get(id).ctl.abort(); recv.delete(id); }
+    const now = Date.now();
     for (const s of sends) {
       const r = recv.get(s.id);
-      if (s.delivered < s.parts && (!s.claimed || s.mine) && !(r && (r.busy || r.error))) receive(s);
+      // a failed batch tries again by itself 5 s later (this only runs while the phone answers), skipping saved ZIPs
+      if (s.delivered < s.parts && (!s.claimed || s.mine) && !(r && (r.busy || (r.error && now - r.errAt < 5000)))) receive(s);
     }
     drawSends();
   }
 
   async function receive(s) {
-    const r = { part: s.delivered, loaded: 0, error: '', busy: true };
+    const r = { loaded: {}, error: '', errAt: 0, busy: true, ctl: new AbortController() };
     recv.set(s.id, r);
     try {
       const c = await fetch('/api/claim?id=' + encodeURIComponent(s.id), { method: 'POST' });
       if (!c.ok) { recv.delete(s.id); return; }               // another device is receiving it
-      for (let k = s.delivered; k < s.parts; k++) {
-        r.part = k;
-        let blob = null, err = '';
-        for (let t = 0; t < 3 && !blob; t++) {
-          try { blob = await fetchPart(s, k, r); }
-          catch (e) { err = e.message; if (e.gone) { recv.delete(s.id); return; } await new Promise(z => setTimeout(z, 1500)); }
+      const todo = [];
+      for (let k = 0; k < s.parts; k++) if (!s.sentParts.includes(k)) todo.push(k);
+      const worker = async () => {
+        while (todo.length && !r.error && !r.ctl.signal.aborted) {
+          const k = todo.shift();
+          let blob = null, err = '';
+          for (let t = 0; t < 3 && !blob; t++) {
+            try { blob = await fetchPart(s, k, r); }
+            catch (e) {
+              if (r.ctl.signal.aborted) return;
+              err = e.message;
+              if (e.gone) { r.ctl.abort(); recv.delete(s.id); return; }
+              await sleep(1500);
+            }
+          }
+          delete r.loaded[k];
+          if (!blob) { r.error = 'ZIP ' + (k + 1) + ' failed — ' + err + '. Retrying when the phone is back…'; r.errAt = Date.now(); return; }
+          save(blob, partName(s, k));
+          await fetch('/api/sent?id=' + encodeURIComponent(s.id) + '&part=' + k, { method: 'POST' });
+          s.sentParts.push(k);
+          s.delivered++;
+          drawSends();
         }
-        if (!blob) { r.error = 'ZIP ' + (k + 1) + ' failed — ' + err; return; }
-        save(blob, partName(s, k));
-        await fetch('/api/sent?id=' + encodeURIComponent(s.id) + '&part=' + k, { method: 'POST' });
-        s.delivered = k + 1;
-        r.loaded = 0;
-        drawSends();
-      }
+      };
+      await Promise.all(Array.from({ length: Math.max(1, Math.min(par, todo.length)) }, worker));
     } catch (e) {
-      r.error = 'Lost the phone — ' + e.message;
+      if (!r.ctl.signal.aborted) { r.error = 'Lost the phone — retrying when it\'s back…'; r.errAt = Date.now(); }
     } finally {
       r.busy = false;
       drawSends();
@@ -635,8 +694,8 @@
   }
 
   async function fetchPart(s, k, r) {
-    r.loaded = 0;
-    const res = await fetch('/api/zip?id=' + encodeURIComponent(s.id) + '&part=' + k, { cache: 'no-store' });
+    r.loaded[k] = 0;
+    const res = await fetch('/api/zip?id=' + encodeURIComponent(s.id) + '&part=' + k, { cache: 'no-store', signal: r.ctl.signal });
     if (res.status === 404) { const e = new Error('cancelled on the phone'); e.gone = true; throw e; }
     if (!res.ok) throw new Error('phone said ' + res.status);
     const reader = res.body.getReader(), chunks = [];
@@ -644,7 +703,7 @@
       const { done, value } = await reader.read();
       if (done) break;
       chunks.push(value);
-      r.loaded += value.length;
+      r.loaded[k] += value.length;
       drawSends();
     }
     return new Blob(chunks, { type: 'application/zip' });
@@ -670,13 +729,14 @@
     $('sendBox').classList.toggle('hidden', !lastSends.length);
     $('sendList').innerHTML = lastSends.map(s => {
       const r = recv.get(s.id);
-      const cur = r && r.busy && s.delivered < s.parts ? r.loaded / Math.max(1, s.partSizes[r.part] || 1) : 0;
-      const pct = Math.min(100, (s.delivered + Math.min(cur, 1)) / s.parts * 100);
+      const live = r && r.busy ? Object.keys(r.loaded).map(Number) : [];
+      const cur = live.reduce((t, k) => t + Math.min(1, r.loaded[k] / Math.max(1, s.partSizes[k] || 1)), 0);
+      const pct = Math.min(100, (s.delivered + cur) / s.parts * 100);
       let meta;
       if (s.delivered >= s.parts) meta = 'All ' + s.parts + ' ZIPs saved ✓';
       else if (r && r.error) meta = r.error;
-      else if (r && r.busy) meta = 'ZIP ' + (r.part + 1) + ' of ' + s.parts + ' · ' + size(r.loaded) + ' of ' + size(s.partSizes[r.part] || 0)
-        + ' · ' + s.delivered + ' saved';
+      else if (r && r.busy) meta = (live.length ? 'Getting ZIP ' + live.map(k => k + 1).join(', ') + ' of ' + s.parts
+        + (live.length > 1 ? ' (' + live.length + ' at once)' : '') + ' · ' : '') + s.delivered + ' of ' + s.parts + ' saved';
       else if (s.claimed && !s.mine) meta = 'Being received by another device';
       else meta = 'Starting…';
       return '<div class="row"><div class="main"><div class="name">📦 ' + s.files + ' files · ' + size(s.size) + '</div>'
@@ -685,7 +745,7 @@
         + (r && r.error ? '<button class="btn ghost tiny" data-retry="' + esc(s.id) + '">Retry</button>' : '') + '</div>';
     }).join('');
     $('sendList').querySelectorAll('[data-retry]').forEach(b => b.onclick = () => {
-      recv.delete(b.dataset.retry);
+      recv.get(b.dataset.retry).errAt = 0;
       lastDraw = 0;
       refresh();
     });
@@ -694,7 +754,36 @@
   // ================================================================ clean cache on every device
   // The button asks the phone to clean; the phone bumps a counter in /api/state and every
   // open page (this one included) clears its own leftovers on its next check.
-  let cleanSeen = null;
+  let cleanSeen = null, stopSeen = null;
+
+  // Stop every upload and download on this page and forget the queues.
+  function stopHere(msg) {
+    for (const job of jobs) {
+      job.cancelled = true;
+      job.items.forEach(it => it.xhr && it.xhr.abort());
+    }
+    jobs.length = 0;
+    $('upBox').classList.add('hidden');
+    drawJobs();
+    for (const r of recv.values()) r.ctl.abort();
+    recv.clear();
+    lastDraw = 0;
+    drawSends();
+    if (msg) toast(msg);
+  }
+
+  async function stopAll() {
+    if (!confirm('Stop every upload and download on every device and clear the queues?\nFiles that already arrived are kept.')) return;
+    stopHere('');
+    try {
+      const st = await (await fetch('/api/stop', { method: 'POST' })).json();
+      toast('Stopped and cleared on all devices');
+    } catch (e) { toast('Stopped here — couldn\'t reach the phone'); }
+    try { stopSeen = (await (await fetch('/api/state', { cache: 'no-store' })).json()).stop; } catch (e) {}
+    refresh();
+  }
+  $('btnStop').onclick = stopAll;
+  $('btnStop2').onclick = stopAll;
 
   function cleanHere() {
     for (let i = jobs.length - 1; i >= 0; i--) if (jobs[i].state !== 'waiting' && jobs[i].state !== 'sending') jobs.splice(i, 1);

@@ -77,6 +77,14 @@ public class Shelf {
         public volatile int delivered;      // ZIPs the laptop has saved
         public volatile String claimedBy;   // the browser picking them up
         public volatile long touched;
+        private boolean[] sent;             // which ZIPs are saved (they may finish out of order)
+
+        public synchronized void markSent(int k) {
+            if (sent == null) sent = new boolean[parts];
+            if (!sent[k]) { sent[k] = true; delivered++; }
+        }
+
+        public synchronized boolean isSent(int k) { return sent != null && sent[k]; }
 
         public List<Entry> part(int k) {
             return entries.subList(k * per, Math.min(entries.size(), (k + 1) * per));
@@ -736,6 +744,7 @@ public class Shelf {
     public synchronized List<Batch> batches() { return new ArrayList<>(batches.values()); }
     public synchronized Batch batch(String id) { return id == null ? null : batches.get(id); }
     public synchronized void dropBatch(String id) { batches.remove(id); rev++; }
+    public synchronized void dropAllBatches() { batches.clear(); rev++; }
     public synchronized void touch() { rev++; }
 
     // ================================================================ clean cache

@@ -27,6 +27,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TimeZone;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -50,6 +51,9 @@ import java.util.zip.ZipOutputStream;
  *   POST /api/claim?id=b:N                 a browser offers to pick up a batch (first one wins)
  *   POST /api/sent?id=b:N&part=k           that browser saved part k
  *   POST /api/clean                        clean the cache on the phone and on every open page
+ *   GET  /api/resume?key=                  how much of an upload already arrived: {done} or {have: bytes}
+ *   POST /api/settings?par=N               files/ZIPs moved at once (1-8), shared by every device
+ *   POST /api/stop                         stop every transfer on every device and clear the queues
  */
 public class Http {
 
@@ -67,6 +71,7 @@ public class Http {
         public volatile long done;
         public volatile int files;     // for ZIPs: files written so far
         public volatile int fileCount;
+        volatile Socket sock;          // so Stop can cut it off
 
         Active(String name, long size, boolean upload, String who, String group) {
             this.name = name; this.size = size; this.upload = upload; this.who = who; this.group = group;
@@ -96,6 +101,11 @@ public class Http {
     private byte[] pageCache;
     /** Bumped by a clean; every open page sees the new value in /api/state and clears itself. */
     private volatile long cleanEpoch;
+    /** Bumped by Stop; pages that see a new value stop and clear everything. */
+    private volatile long stopEpoch;
+    /** Uploads that can be resumed: key from the page -> target file (its .part holds what arrived). */
+    private final Map<String, File> pending = new ConcurrentHashMap<>();
+    private final Map<String, File> finished = new ConcurrentHashMap<>();
 
     public Http(Context ctx, Shelf shelf, String phoneName, Events events) {
         this.ctx = ctx.getApplicationContext();
@@ -106,6 +116,28 @@ public class Http {
 
     public int port() { return port; }
     public boolean running() { return running; }
+
+    /** Files (uploads) or ZIPs (phone -> laptop) moved at the same time, 1-8. */
+    public int par() {
+        return Math.max(1, Math.min(8, ctx.getSharedPreferences("settings", Context.MODE_PRIVATE).getInt("par", 3)));
+    }
+
+    public void setPar(int n) {
+        ctx.getSharedPreferences("settings", Context.MODE_PRIVATE).edit().putInt("par", Math.max(1, Math.min(8, n))).apply();
+    }
+
+    /** Cuts every transfer, throws away half-finished uploads and batches, and tells every page to clear. */
+    public void stopAll() {
+        stopEpoch = System.currentTimeMillis();
+        for (Active a : active) {
+            try { if (a.sock != null) a.sock.close(); } catch (IOException ignored) { }
+        }
+        for (File f : pending.values()) Shelf.partOf(f).delete();
+        pending.clear();
+        shelf.dropAllBatches();
+    }
+
+    private boolean justStopped() { return System.currentTimeMillis() - stopEpoch < 5000; }
 
     /** Cleans the phone's cache and tells every connected page to clean its own. Returns bytes freed on the phone. */
     public long cleanAll() {
@@ -162,6 +194,7 @@ public class Http {
         Map<String, String> headers = new HashMap<>();
         InputStream body;
         String client;
+        Socket sock;
 
         String q(String k) { return query.get(k); }
     }
@@ -176,6 +209,7 @@ public class Http {
             if (r == null) return;
             r.client = s.getInetAddress().getHostAddress();
             r.body = in;
+            r.sock = s;
             route(r, out);
             out.flush();
         } catch (IOException ignored) {
@@ -245,7 +279,7 @@ public class Http {
                     int k = -1;
                     try { k = Integer.parseInt(r.q("part")); } catch (Exception ignored) { }
                     if (b == null || k < 0 || k >= b.parts) { sendJson(out, 404, "{\"ok\":false}"); return; }
-                    b.delivered = Math.max(b.delivered, k + 1);
+                    b.markSent(k);
                     b.touched = System.currentTimeMillis();
                     shelf.touch();
                     sendJson(out, 200, "{\"ok\":true}");
@@ -258,6 +292,19 @@ public class Http {
                     sendJson(out, ok ? 200 : 404, "{\"ok\":" + ok + "}");
                     return;
                 }
+                break;
+            case "/api/resume":
+                if (m.equals("GET")) { sendJson(out, 200, resume(r.q("key"))); return; }
+                break;
+            case "/api/settings":
+                if (m.equals("POST")) {
+                    try { setPar(Integer.parseInt(r.q("par"))); } catch (Exception ignored) { }
+                    sendJson(out, 200, "{\"par\":" + par() + "}");
+                    return;
+                }
+                break;
+            case "/api/stop":
+                if (m.equals("POST")) { stopAll(); sendJson(out, 200, "{\"ok\":true}"); return; }
                 break;
             case "/api/clean":
                 if (m.equals("POST")) { sendJson(out, 200, "{\"ok\":true,\"freed\":" + cleanAll() + "}"); return; }
@@ -282,8 +329,13 @@ public class Http {
         String batch = r.q("batch") == null ? "" : r.q("batch");
         long mtime = 0;
         try { mtime = Long.parseLong(r.q("mtime")); } catch (Exception ignored) { }
+        String key = r.q("key");
+        if (key != null && key.isEmpty()) key = null;
+        long offset = 0;
+        try { offset = Long.parseLong(r.q("offset")); } catch (Exception ignored) { }
         long len;
         try { len = Long.parseLong(r.headers.get("content-length")); } catch (Exception e) { len = -1; }
+        if (justStopped()) { sendJson(out, 410, "{\"error\":\"Stopped on the phone\",\"stopped\":true}"); return; }
         if (path == null || path.isEmpty() || len < 0) {
             sendJson(out, 400, "{\"error\":\"Need a file name and Content-Length\"}");
             return;
@@ -293,12 +345,22 @@ public class Http {
             return;
         }
 
-        File target;
-        try {
-            target = shelf.target(path, batch);
-        } catch (IOException e) {
-            sendJson(out, 500, "{\"error\":" + js(e.getMessage()) + "}");
+        File target = key == null ? null : pending.get(key);
+        if (target != null) {
+            File pp = Shelf.partOf(target);
+            long have = pp.exists() ? pp.length() : 0;
+            if (offset != have) { sendJson(out, 409, "{\"error\":\"Resume point moved\",\"have\":" + have + "}"); return; }
+        } else if (offset != 0) {
+            sendJson(out, 409, "{\"error\":\"Nothing to resume\",\"have\":0}");
             return;
+        } else {
+            try {
+                target = shelf.target(path, batch);
+            } catch (IOException e) {
+                sendJson(out, 500, "{\"error\":" + js(e.getMessage()) + "}");
+                return;
+            }
+            if (key != null) pending.put(key, target);
         }
         if ("100-continue".equalsIgnoreCase(r.headers.get("expect"))) {
             out.write("HTTP/1.1 100 Continue\r\n\r\n".getBytes(StandardCharsets.ISO_8859_1));
@@ -308,12 +370,14 @@ public class Http {
         String rel = shelf.rel(target);
         int slash = rel.indexOf('/');
         File part = Shelf.partOf(target);
-        Active a = new Active(rel, len, true, from, slash > 0 ? rel.substring(0, slash) : null);
+        Active a = new Active(rel, offset + len, true, from, slash > 0 ? rel.substring(0, slash) : null);
+        a.done = offset;
+        a.sock = r.sock;
         active.add(a);
         events.onTransferStart(a);
         boolean ok = false;
         String err = null;
-        try (OutputStream fo = new BufferedOutputStream(new FileOutputStream(part), BUF)) {
+        try (OutputStream fo = new BufferedOutputStream(new FileOutputStream(part, offset > 0), BUF)) {
             byte[] buf = new byte[BUF];
             long left = len;
             while (left > 0) {
@@ -337,7 +401,8 @@ public class Http {
             ok = part.renameTo(target);
             if (!ok) err = "Couldn't save the file";
         }
-        if (!ok) part.delete();
+        if (!ok && key == null) part.delete();        // with a key, keep what arrived so it can resume
+        if (ok && key != null) { pending.remove(key); finished.put(key, target); }
         active.remove(a);
         if (ok) shelf.received(target, mtime, from, replaced);
         events.onTransferEnd(a, ok, err);
@@ -389,6 +454,7 @@ public class Http {
         if (head || len == 0) return;
 
         Active a = new Active(it.name, len, false, r.client, null);
+        a.sock = r.sock;
         active.add(a);
         events.onTransferStart(a);
         boolean ok = false;
@@ -460,6 +526,7 @@ public class Http {
 
         Active a = new Active(zipName, total, false, r.client, null);
         a.fileCount = entries.size();
+        a.sock = r.sock;
         active.add(a);
         events.onTransferStart(a);
         boolean ok = false;
@@ -522,6 +589,8 @@ public class Http {
         b.append(",\"free\":").append(shelf.freeSpace());
         b.append(",\"rev\":").append(shelf.rev());
         b.append(",\"clean\":").append(cleanEpoch);
+        b.append(",\"stop\":").append(stopEpoch);
+        b.append(",\"par\":").append(par());
         b.append(",\"files\":[");
         boolean first = true;
         for (Shelf.Item it : shelf.list()) {
@@ -554,7 +623,10 @@ public class Http {
                     .append(",\"delivered\":").append(sb.delivered)
                     .append(",\"claimed\":").append(sb.claimedBy != null)
                     .append(",\"mine\":").append(client.equals(sb.claimedBy))
-                    .append(",\"partSizes\":[");
+                    .append(",\"sentParts\":[");
+            boolean f2 = true;
+            for (int k = 0; k < sb.parts; k++) if (sb.isSent(k)) { b.append(f2 ? "" : ",").append(k); f2 = false; }
+            b.append("],\"partSizes\":[");
             for (int k = 0; k < sb.parts; k++) b.append(k > 0 ? "," : "").append(sb.partSize(k));
             b.append("]}");
         }
@@ -574,6 +646,19 @@ public class Http {
         }
         b.append("]}");
         return b.toString();
+    }
+
+    private String resume(String key) {
+        if (justStopped()) return "{\"stopped\":true}";
+        if (key == null) return "{\"have\":0}";
+        File f = finished.get(key);
+        if (f != null) {
+            if (f.exists()) return "{\"done\":true}";
+            finished.remove(key);                     // deleted since: send it again
+        }
+        File t = pending.get(key);
+        long have = t != null && Shelf.partOf(t).exists() ? Shelf.partOf(t).length() : 0;
+        return "{\"done\":false,\"have\":" + have + "}";
     }
 
     /** Files in a folder, oldest first, with paths shown relative to the folder. */
@@ -631,6 +716,8 @@ public class Http {
         switch (code) {
             case 200: return "OK";
             case 400: return "Bad Request";
+            case 409: return "Conflict";
+            case 410: return "Gone";
             case 404: return "Not Found";
             case 405: return "Method Not Allowed";
             case 507: return "Insufficient Storage";
